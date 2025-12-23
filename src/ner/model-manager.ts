@@ -50,8 +50,8 @@ export interface ModelInfo {
 /**
  * Registry of available models hosted on Hugging Face Hub
  * 
- * Using Xenova's ONNX exports which are optimized for JS/ONNX runtime
- * https://huggingface.co/Xenova
+ * Using ELAN's ONNX exports which are optimized for JS/ONNX runtime
+ * https://huggingface.co/tjruesch/xlm-roberta-base-ner-hrl-onnx
  */
 export const MODEL_REGISTRY: Record<'standard' | 'quantized', ModelInfo> = {
   standard: {
@@ -59,25 +59,24 @@ export const MODEL_REGISTRY: Record<'standard' | 'quantized', ModelInfo> = {
     name: 'XLM-RoBERTa NER (Standard)',
     description: 'Multilingual NER model supporting EN, DE, FR, ES, and more',
     size: '~1.1 GB',
-    hfRepo: 'Xenova/xlm-roberta-base-ner-hrl',
+    hfRepo: 'tjruesch/xlm-roberta-base-ner-hrl-onnx',
     hfSubfolder: 'onnx',
     files: [
       { repoFile: 'model.onnx', localFile: 'model.onnx', required: true },
-      { repoFile: 'model.onnx_data', localFile: 'model.onnx_data', required: false },
     ],
-    labelMap: ['O', 'B-PER', 'I-PER', 'B-ORG', 'I-ORG', 'B-LOC', 'I-LOC', 'B-DATE', 'I-DATE'],
+    labelMap: ['O', 'B-DATE', 'I-DATE', 'B-PER', 'I-PER', 'B-ORG', 'I-ORG', 'B-LOC', 'I-LOC'],
   },
   quantized: {
     id: 'xlm-roberta-ner-quantized',
     name: 'XLM-RoBERTa NER (Quantized)',
     description: 'Quantized version, ~4x smaller with minimal accuracy loss',
-    size: '~280 MB',
-    hfRepo: 'Xenova/xlm-roberta-base-ner-hrl',
+    size: '~265 MB',
+    hfRepo: 'tjruesch/xlm-roberta-base-ner-hrl-onnx',
     hfSubfolder: 'onnx',
     files: [
       { repoFile: 'model_quantized.onnx', localFile: 'model.onnx', required: true },
     ],
-    labelMap: ['O', 'B-PER', 'I-PER', 'B-ORG', 'I-ORG', 'B-LOC', 'I-LOC', 'B-DATE', 'I-DATE'],
+    labelMap: ['O', 'B-DATE', 'I-DATE', 'B-PER', 'I-PER', 'B-ORG', 'I-ORG', 'B-LOC', 'I-LOC'],
   },
 };
 

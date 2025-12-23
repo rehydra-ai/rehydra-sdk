@@ -15,8 +15,9 @@
     "test:run": "vitest run",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist",
-    "setup:ner": "bash scripts/setup-ner-model.sh",
-    "setup:ner:quantized": "bash scripts/setup-ner-model.sh --quantize",
+    "setup:ner": "bash scripts/setup-ner-model.sh --quantize",
+    "setup:ner:standard": "bash scripts/setup-ner-model.sh",
+    "setup:ner:upload": "bash scripts/setup-ner-model.sh --quantize --upload",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [

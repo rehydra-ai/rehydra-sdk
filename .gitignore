@@ -1,8 +1,11 @@
 # Dependencies
 node_modules/
 
+
 # Build output
 dist/
+
+models/
 
 # IDE
 .idea/
