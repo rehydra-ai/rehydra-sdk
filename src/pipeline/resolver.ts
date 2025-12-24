@@ -144,10 +144,11 @@ function applyDenylist(
       if (match.index === undefined) continue;
 
       // Check if this is already covered by existing matches
+      const matchIndex = match.index;
       const alreadyCovered = matches.some(
         (existing) =>
-          existing.start <= match.index! &&
-          existing.end >= match.index! + match[0].length
+          existing.start <= matchIndex &&
+          existing.end >= matchIndex + match[0].length
       );
 
       if (!alreadyCovered) {

@@ -345,14 +345,14 @@ export function parseHFTokenizerJson(content: string): Map<string, number> {
     const config = JSON.parse(content) as HFTokenizerConfig;
     
     // Add special tokens first
-    if (config.added_tokens) {
+    if (Array.isArray(config.added_tokens)) {
       for (const token of config.added_tokens) {
         vocab.set(token.content, token.id);
       }
     }
     
     // Add model vocabulary
-    if (config.model?.vocab) {
+    if (config.model !== undefined && config.model.vocab !== undefined) {
       if (Array.isArray(config.model.vocab)) {
         // Unigram format: array of [token, score] pairs
         for (let i = 0; i < config.model.vocab.length; i++) {
@@ -364,12 +364,12 @@ export function parseHFTokenizerJson(content: string): Map<string, number> {
       } else {
         // BPE/WordPiece format: object mapping token -> id
         for (const [token, id] of Object.entries(config.model.vocab)) {
-          vocab.set(token, id as number);
+          vocab.set(token, id);
         }
       }
     }
   } catch (e) {
-    throw new Error(`Failed to parse tokenizer.json: ${e}`);
+    throw new Error(`Failed to parse tokenizer.json: ${String(e)}`);
   }
   
   return vocab;

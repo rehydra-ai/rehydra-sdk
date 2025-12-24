@@ -77,7 +77,6 @@ export {
 
 // Main anonymization imports
 import {
-  PIIType,
   AnonymizationResult,
   AnonymizationPolicy,
   AnonymizationStats,
@@ -88,14 +87,12 @@ import {
 import { createDefaultRegistry, RecognizerRegistry } from './recognizers/index.js';
 import { type INERModel, NERModelStub, createNERModel, DEFAULT_LABEL_MAP } from './ner/index.js';
 import { type NERModelMode, ensureModel, type DownloadProgressCallback } from './ner/model-manager.js';
-import { loadVocabFromFile } from './ner/tokenizer.js';
 import { prenormalize } from './pipeline/prenormalize.js';
 import { resolveEntities } from './pipeline/resolver.js';
 import { tagEntities, countEntitiesByType } from './pipeline/tagger.js';
 import { validateOutput } from './pipeline/validator.js';
 import { encryptPIIMap, generateKey, type KeyProvider } from './crypto/index.js';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 
 /**
  * NER configuration options
@@ -211,7 +208,8 @@ export class Anonymizer {
     if (this.nerConfig.mode === 'disabled') {
       this.nerModel = new NERModelStub();
     } else if (this.nerConfig.mode === 'custom') {
-      if (!this.nerConfig.modelPath || !this.nerConfig.vocabPath) {
+      if (this.nerConfig.modelPath === undefined || this.nerConfig.modelPath === '' ||
+          this.nerConfig.vocabPath === undefined || this.nerConfig.vocabPath === '') {
         throw new Error("NER mode 'custom' requires modelPath and vocabPath");
       }
       
@@ -343,7 +341,7 @@ export class Anonymizer {
 
     // Step 9: Build result (without original text in entities)
     const safeEntities: Omit<DetectedEntity, 'original'>[] = entities.map(
-      ({ original, ...rest }) => rest
+      ({ original: _original, ...rest }) => rest
     );
 
     return {

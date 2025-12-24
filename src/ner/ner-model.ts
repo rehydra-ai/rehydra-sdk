@@ -5,11 +5,10 @@
  */
 
 import { loadRuntime, type OrtRuntime } from './onnx-runtime.js';
-import { PIIType, SpanMatch, DetectionSource, AnonymizationPolicy } from '../types/index.js';
+import { SpanMatch, AnonymizationPolicy } from '../types/index.js';
 import {
   WordPieceTokenizer,
   loadVocabFromFile,
-  parseVocab,
   type TokenizationResult,
 } from './tokenizer.js';
 import {
@@ -69,7 +68,7 @@ export const DEFAULT_LABEL_MAP = [
  */
 export class NERModel {
   private ort: OrtRuntime | null = null;
-  private session: unknown | null = null;
+  private session: unknown = null;
   private tokenizer: WordPieceTokenizer | null = null;
   private config: NERModelConfig;
   private isLoaded = false;
@@ -225,7 +224,7 @@ export class NERModel {
     logits: { data: Float32Array },
     seqLength: number
   ): { labels: string[]; confidences: number[] } {
-    const data = logits.data as Float32Array;
+    const data = logits.data;
     const numLabels = this.config.labelMap.length;
 
     const labels: string[] = [];
@@ -293,13 +292,12 @@ export class NERModel {
   /**
    * Disposes of model resources
    */
-  async dispose(): Promise<void> {
-    if (this.session !== null) {
-      // ONNX Runtime Node doesn't have explicit dispose, but we can clear references
-      this.session = null;
-    }
+  dispose(): Promise<void> {
+    // ONNX Runtime Node doesn't have explicit dispose, but we can clear references
+    this.session = null;
     this.tokenizer = null;
     this.isLoaded = false;
+    return Promise.resolve();
   }
 }
 
@@ -341,16 +339,17 @@ export class NERModelStub {
     // No-op
   }
 
-  async predict(_text: string, _policy?: AnonymizationPolicy): Promise<NERPrediction> {
-    return {
+  predict(_text: string, _policy?: AnonymizationPolicy): Promise<NERPrediction> {
+    return Promise.resolve({
       spans: [],
       processingTimeMs: 0,
       modelVersion: this.version,
-    };
+    });
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
     // No-op
+    return Promise.resolve();
   }
 }
 

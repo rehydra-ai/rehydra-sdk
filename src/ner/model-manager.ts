@@ -6,7 +6,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import { createWriteStream } from 'fs';
 
 /**
  * Available NER model variants
@@ -152,7 +151,7 @@ export type DownloadProgressCallback = (progress: {
  * Builds a Hugging Face Hub download URL
  */
 function getHuggingFaceUrl(repo: string, filename: string, subfolder?: string): string {
-  const filePath = subfolder ? `${subfolder}/${filename}` : filename;
+  const filePath = subfolder !== undefined && subfolder !== '' ? `${subfolder}/${filename}` : filename;
   return `https://huggingface.co/${repo}/resolve/main/${filePath}`;
 }
 
@@ -178,7 +177,7 @@ async function downloadFile(
   }
   
   const totalBytes = response.headers.get('content-length');
-  const total = totalBytes ? parseInt(totalBytes, 10) : null;
+  const total = totalBytes !== null && totalBytes !== '' ? parseInt(totalBytes, 10) : null;
   
   // Ensure directory exists
   await fs.mkdir(path.dirname(destPath), { recursive: true });
@@ -187,18 +186,20 @@ async function downloadFile(
   
   // For Node.js, we need to handle the stream differently
   const reader = response.body?.getReader();
-  if (!reader) {
+  if (reader === undefined) {
     throw new Error('Response body is not readable');
   }
   
   const chunks: Uint8Array[] = [];
   let bytesDownloaded = 0;
   
+  // eslint-disable-next-line no-constant-condition
   while (true) {
-    const { done, value } = await reader.read();
+    const result = await reader.read();
     
-    if (done) break;
+    if (result.done) break;
     
+    const value = result.value as Uint8Array;
     chunks.push(value);
     bytesDownloaded += value.length;
     
@@ -207,7 +208,7 @@ async function downloadFile(
         file: fileName,
         bytesDownloaded,
         totalBytes: total,
-        percent: total ? Math.round((bytesDownloaded / total) * 100) : null,
+        percent: total !== null && total > 0 ? Math.round((bytesDownloaded / total) * 100) : null,
       });
     }
   }
@@ -245,7 +246,7 @@ export async function downloadModel(
       await downloadFile(url, destPath, onProgress);
     } catch (e) {
       if (file.required) {
-        throw new Error(`Failed to download required file ${file.repoFile}: ${e}`);
+        throw new Error(`Failed to download required file ${file.repoFile}: ${String(e)}`);
       }
       // Optional files can fail silently
       onStatus?.(`Skipping optional file ${file.repoFile}`);
@@ -261,7 +262,7 @@ export async function downloadModel(
       await downloadFile(url, destPath, onProgress);
     } catch (e) {
       if (file.required) {
-        throw new Error(`Failed to download required file ${file.repoFile}: ${e}`);
+        throw new Error(`Failed to download required file ${file.repoFile}: ${String(e)}`);
       }
     }
   }

@@ -195,13 +195,13 @@ export class InMemoryKeyProvider implements KeyProvider {
     this.key = key ?? generateKey();
   }
 
-  async getKey(): Promise<Buffer> {
-    return this.key;
+  getKey(): Promise<Buffer> {
+    return Promise.resolve(this.key);
   }
 
-  async rotateKey(): Promise<Buffer> {
+  rotateKey(): Promise<Buffer> {
     this.key = generateKey();
-    return this.key;
+    return Promise.resolve(this.key);
   }
 }
 
@@ -216,18 +216,18 @@ export class EnvKeyProvider implements KeyProvider {
     this.envVarName = envVarName;
   }
 
-  async getKey(): Promise<Buffer> {
+  getKey(): Promise<Buffer> {
     const keyBase64 = process.env[this.envVarName];
     if (keyBase64 === undefined || keyBase64.length === 0) {
-      throw new Error(`Encryption key not found in environment variable: ${this.envVarName}`);
+      return Promise.reject(new Error(`Encryption key not found in environment variable: ${this.envVarName}`));
     }
 
     const key = Buffer.from(keyBase64, 'base64');
     if (key.length !== 32) {
-      throw new Error(`Invalid key length from ${this.envVarName}: expected 32 bytes`);
+      return Promise.reject(new Error(`Invalid key length from ${this.envVarName}: expected 32 bytes`));
     }
 
-    return key;
+    return Promise.resolve(key);
   }
 }
 

@@ -84,15 +84,15 @@ export async function loadRuntime(preferredRuntime?: 'node' | 'web'): Promise<Or
   try {
     if (runtimeType === 'node') {
       // Dynamic import for onnxruntime-node
-      const ort = await import('onnxruntime-node');
-      _runtime = ort as unknown as OrtRuntime;
+      const ort = await import('onnxruntime-node') as OrtRuntime;
+      _runtime = ort;
       _runtimeType = 'node';
     } else {
       // Dynamic import for onnxruntime-web
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore - onnxruntime-web may not be installed
-      const ort = await import('onnxruntime-web');
-      _runtime = ort as unknown as OrtRuntime;
+      const ort = await import('onnxruntime-web') as OrtRuntime;
+      _runtime = ort;
       _runtimeType = 'web';
     }
   } catch (e) {
@@ -101,20 +101,20 @@ export async function loadRuntime(preferredRuntime?: 'node' | 'web'): Promise<Or
     
     try {
       if (fallbackType === 'node') {
-        const ort = await import('onnxruntime-node');
-        _runtime = ort as unknown as OrtRuntime;
+        const ort = await import('onnxruntime-node') as OrtRuntime;
+        _runtime = ort;
         _runtimeType = 'node';
       } else {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore - onnxruntime-web may not be installed
-        const ort = await import('onnxruntime-web');
-        _runtime = ort as unknown as OrtRuntime;
+        const ort = await import('onnxruntime-web') as OrtRuntime;
+        _runtime = ort;
         _runtimeType = 'web';
       }
     } catch {
       throw new Error(
         `Failed to load ONNX runtime. Install either 'onnxruntime-node' or 'onnxruntime-web'.\n` +
-        `Original error: ${e}`
+        `Original error: ${String(e)}`
       );
     }
   }
@@ -140,10 +140,10 @@ export function resetRuntime(): void {
 // Add runtime type declarations
 declare global {
   // eslint-disable-next-line no-var
-  var Bun: unknown | undefined;
+  var Bun: unknown;
   // eslint-disable-next-line no-var
-  var Deno: unknown | undefined;
+  var Deno: unknown;
   // eslint-disable-next-line no-var
-  var window: unknown | undefined;
+  var window: unknown;
 }
 
