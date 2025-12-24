@@ -1,5 +1,9 @@
 # Bridge Anonymization
 
+![License](https://img.shields.io/github/license/elanlanguages/bridge-anonymization)
+![Issues](https://img.shields.io/github/issues/elanlanguages/bridge-anonymization)
+[![codecov](https://codecov.io/github/elanlanguages/bridge-anonymization/graph/badge.svg?token=WX5RI0ZZJG)](https://codecov.io/github/elanlanguages/bridge-anonymization)
+
 On-device PII anonymization module for high-privacy translation workflows. Detects and replaces Personally Identifiable Information (PII) with placeholder tags while maintaining an encrypted mapping for later rehydration.
 
 ## Features
