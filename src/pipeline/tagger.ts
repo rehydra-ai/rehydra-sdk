@@ -8,6 +8,7 @@ import {
   SpanMatch,
   DetectedEntity,
   AnonymizationPolicy,
+  SemanticAttributes,
 } from "../types/index.js";
 import { sortSpansByPosition } from "../utils/offsets.js";
 
@@ -42,23 +43,60 @@ export interface TaggingResult {
 
 /**
  * Generates a PII placeholder tag
- * Format: <PII type="TYPE" id="N"/>
+ * Format: <PII type="TYPE" id="N"/> or <PII type="TYPE" gender="X" id="N"/> etc.
+ * 
+ * Semantic attributes (gender, scope) are included when provided and not 'unknown'
  */
-export function generateTag(type: PIIType, id: number): string {
-  return `<PII type="${type}" id="${id}"/>`;
+export function generateTag(
+  type: PIIType,
+  id: number,
+  semantic?: SemanticAttributes
+): string {
+  let attrs = `type="${type}"`;
+  
+  // Add semantic attributes if present and meaningful
+  if (semantic?.gender && semantic.gender !== 'unknown') {
+    attrs += ` gender="${semantic.gender}"`;
+  }
+  if (semantic?.scope && semantic.scope !== 'unknown') {
+    attrs += ` scope="${semantic.scope}"`;
+  }
+  
+  attrs += ` id="${id}"`;
+  
+  return `<PII ${attrs}/>`;
 }
 
 /**
- * Parses a PII tag to extract type and id
- * Returns null if not a valid tag
+ * Result of parsing a PII tag
  */
-export function parseTag(tag: string): { type: PIIType; id: number } | null {
-  const match = tag.match(/^<PII\s+type="([A-Z_]+)"\s+id="(\d+)"\s*\/>$/);
+export interface ParsedTag {
+  type: PIIType;
+  id: number;
+  semantic?: SemanticAttributes;
+}
+
+/**
+ * Parses a PII tag to extract type, id, and semantic attributes
+ * Returns null if not a valid tag
+ * 
+ * Supports formats:
+ * - <PII type="TYPE" id="N"/>
+ * - <PII type="TYPE" gender="X" id="N"/>
+ * - <PII type="TYPE" scope="X" id="N"/>
+ * - <PII type="TYPE" gender="X" scope="Y" id="N"/>
+ */
+export function parseTag(tag: string): ParsedTag | null {
+  // More flexible regex that handles optional gender/scope attributes
+  const match = tag.match(
+    /^<PII\s+type="([A-Z_]+)"(?:\s+gender="(\w+)")?(?:\s+scope="(\w+)")?\s+id="(\d+)"\s*\/>$/
+  );
+  
   if (match === null) {
     return null;
   }
 
-  const [, typeStr, idStr] = match;
+  const [, typeStr, genderStr, scopeStr, idStr] = match;
   if (typeStr === undefined || idStr === undefined) {
     return null;
   }
@@ -71,7 +109,19 @@ export function parseTag(tag: string): { type: PIIType; id: number } | null {
     return null;
   }
 
-  return { type, id };
+  // Build semantic attributes if present
+  let semantic: SemanticAttributes | undefined;
+  if (genderStr || scopeStr) {
+    semantic = {};
+    if (genderStr && ['male', 'female', 'neutral', 'unknown'].includes(genderStr)) {
+      semantic.gender = genderStr as SemanticAttributes['gender'];
+    }
+    if (scopeStr && ['city', 'country', 'region', 'unknown'].includes(scopeStr)) {
+      semantic.scope = scopeStr as SemanticAttributes['scope'];
+    }
+  }
+
+  return { type, id, semantic };
 }
 
 /**
@@ -142,7 +192,7 @@ export function tagEntities(
   // Perform replacements
   let anonymizedText = text;
   for (const entity of sortedDescending) {
-    const tag = generateTag(entity.type, entity.id);
+    const tag = generateTag(entity.type, entity.id, entity.semantic);
     anonymizedText =
       anonymizedText.slice(0, entity.start) +
       tag +
@@ -158,6 +208,7 @@ export function tagEntities(
     confidence: e.confidence,
     source: e.source,
     original: e.text,
+    semantic: e.semantic,
   }));
 
   return {
@@ -183,6 +234,8 @@ export interface ExtractedTag {
   position: number;
   /** The actual matched text (needed for replacement when tag is mangled) */
   matchedText: string;
+  /** Semantic attributes extracted from the tag */
+  semantic?: SemanticAttributes;
 }
 
 /**
@@ -212,24 +265,30 @@ const FLEXIBLE_WS_REQUIRED = `[\\s\\u00A0\\u2000-\\u200B]+`;
 
 /**
  * Builds patterns for fuzzy PII tag matching
- * Handles various translation artifacts
+ * Handles various translation artifacts and optional semantic attributes
  */
 function buildFuzzyTagPatterns(): RegExp[] {
   // Pattern for type attribute: type = "VALUE" (flexible spacing and quotes)
   const typeAttr = `type${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}([A-Z_]+)${QUOTE_CHARS}`;
   // Pattern for id attribute: id = "VALUE" (flexible spacing and quotes)
   const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\d+)${QUOTE_CHARS}`;
+  // Optional gender attribute
+  const genderAttr = `(?:${FLEXIBLE_WS}gender${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
+  // Optional scope attribute
+  const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
 
   // Self-closing tag endings: />, / >, >, etc.
   const selfClosing = `${FLEXIBLE_WS}\\/?${FLEXIBLE_WS}>`;
 
   return [
-    // type first: <PII type="X" id="Y"/>
+    // type first with optional gender/scope: <PII type="X" gender="Y" scope="Z" id="N"/>
+    // Groups: type=1, gender=2, scope=3, id=4
     new RegExp(
-      `<${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${typeAttr}${FLEXIBLE_WS_REQUIRED}${idAttr}${selfClosing}`,
+      `<${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${typeAttr}${genderAttr}${scopeAttr}${FLEXIBLE_WS_REQUIRED}${idAttr}${selfClosing}`,
       "gi"
     ),
-    // id first: <PII id="Y" type="X"/>
+    // id first: <PII id="N" type="X"/>
+    // Groups: id=1, type=2
     new RegExp(
       `<${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${idAttr}${FLEXIBLE_WS_REQUIRED}${typeAttr}${selfClosing}`,
       "gi"
@@ -268,15 +327,19 @@ export function extractTags(anonymizedText: string): ExtractedTag[] {
         continue; // Skip duplicates from overlapping patterns
       }
 
-      // Extract type and id based on which pattern matched
-      // Pattern 0: type first (groups: type=1, id=2)
+      // Extract type, id, and semantic attributes based on which pattern matched
+      // Pattern 0: type first with optional gender/scope (groups: type=1, gender=2, scope=3, id=4)
       // Pattern 1: id first (groups: id=1, type=2)
       let typeStr: string | undefined;
       let idStr: string | undefined;
+      let genderStr: string | undefined;
+      let scopeStr: string | undefined;
 
       if (patternIndex === 0) {
         typeStr = match[1];
-        idStr = match[2];
+        genderStr = match[2];
+        scopeStr = match[3];
+        idStr = match[4];
       } else {
         idStr = match[1];
         typeStr = match[2];
@@ -287,11 +350,24 @@ export function extractTags(anonymizedText: string): ExtractedTag[] {
         const id = parseInt(idStr, 10);
 
         if (Object.values(PIIType).includes(type)) {
+          // Build semantic attributes if present
+          let semantic: SemanticAttributes | undefined;
+          if (genderStr || scopeStr) {
+            semantic = {};
+            if (genderStr && ['male', 'female', 'neutral', 'unknown'].includes(genderStr.toLowerCase())) {
+              semantic.gender = genderStr.toLowerCase() as SemanticAttributes['gender'];
+            }
+            if (scopeStr && ['city', 'country', 'region', 'unknown'].includes(scopeStr.toLowerCase())) {
+              semantic.scope = scopeStr.toLowerCase() as SemanticAttributes['scope'];
+            }
+          }
+
           tags.push({
             type,
             id,
             position: match.index,
             matchedText: match[0],
+            semantic,
           });
           matchedPositions.add(match.index);
         }
@@ -308,22 +384,44 @@ export function extractTags(anonymizedText: string): ExtractedTag[] {
 /**
  * Extracts tags using strict matching (original behavior)
  * Useful when you know tags haven't been mangled
+ * Supports optional gender and scope attributes
  */
 export function extractTagsStrict(anonymizedText: string): ExtractedTag[] {
   const tags: ExtractedTag[] = [];
-  const tagPattern = /<PII\s+type="([A-Z_]+)"\s+id="(\d+)"\s*\/>/g;
+  // Pattern matches: <PII type="X" [gender="Y"] [scope="Z"] id="N"/>
+  const tagPattern = /<PII\s+type="([A-Z_]+)"(?:\s+gender="(\w+)")?(?:\s+scope="(\w+)")?\s+id="(\d+)"\s*\/>/g;
 
   let match: RegExpExecArray | null;
   while ((match = tagPattern.exec(anonymizedText)) !== null) {
     const typeStr = match[1];
-    const idStr = match[2];
+    const genderStr = match[2];
+    const scopeStr = match[3];
+    const idStr = match[4];
 
     if (typeStr !== undefined && idStr !== undefined) {
       const type = typeStr as PIIType;
       const id = parseInt(idStr, 10);
 
       if (Object.values(PIIType).includes(type)) {
-        tags.push({ type, id, position: match.index, matchedText: match[0] });
+        // Build semantic attributes if present
+        let semantic: SemanticAttributes | undefined;
+        if (genderStr || scopeStr) {
+          semantic = {};
+          if (genderStr && ['male', 'female', 'neutral', 'unknown'].includes(genderStr)) {
+            semantic.gender = genderStr as SemanticAttributes['gender'];
+          }
+          if (scopeStr && ['city', 'country', 'region', 'unknown'].includes(scopeStr)) {
+            semantic.scope = scopeStr as SemanticAttributes['scope'];
+          }
+        }
+
+        tags.push({
+          type,
+          id,
+          position: match.index,
+          matchedText: match[0],
+          semantic,
+        });
       }
     }
   }

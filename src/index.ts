@@ -4,7 +4,7 @@
  */
 
 // Re-export types
-export * from './types/index.js';
+export * from "./types/index.js";
 
 // Re-export recognizers
 export {
@@ -24,7 +24,7 @@ export {
   createCustomIdRecognizer,
   createCaseIdRecognizer,
   createCustomerIdRecognizer,
-} from './recognizers/index.js';
+} from "./recognizers/index.js";
 
 // Re-export NER components
 export {
@@ -50,7 +50,7 @@ export {
   ensureModel,
   clearModelCache,
   listDownloadedModels,
-} from './ner/index.js';
+} from "./ner/index.js";
 
 // Re-export pipeline components
 export {
@@ -61,7 +61,39 @@ export {
   generateTag,
   parseTag,
   rehydrate,
-} from './pipeline/index.js';
+  enrichSemantics,
+  inferGender,
+  classifyLocation,
+  getDatabaseStats,
+  hasName,
+  hasLocation,
+  // Semantic data loader exports
+  isSemanticDataAvailable,
+  isSemanticDataDownloaded,
+  getSemanticDataCacheDir,
+  getDataDirectory,
+  downloadSemanticData,
+  ensureSemanticData,
+  initializeSemanticData,
+  loadSemanticData,
+  clearSemanticData,
+  clearSemanticDataCache,
+  getSemanticDataInfo,
+  SEMANTIC_DATA_FILES,
+  // Title extractor exports
+  extractTitle,
+  extractTitlesFromSpans,
+  mergeAdjacentTitleSpans,
+  getTitlesForLanguage,
+  getAllTitles,
+  startsWithTitle,
+  isOnlyTitle,
+  type SemanticDataFileInfo,
+  type EnricherConfig,
+  type GenderResult,
+  type LocationResult,
+  type TitleExtractionResult,
+} from "./pipeline/index.js";
 
 // Re-export crypto
 export {
@@ -73,7 +105,7 @@ export {
   KeyProvider,
   InMemoryKeyProvider,
   EnvKeyProvider,
-} from './crypto/index.js';
+} from "./crypto/index.js";
 
 // Main anonymization imports
 import {
@@ -81,18 +113,45 @@ import {
   AnonymizationPolicy,
   AnonymizationStats,
   DetectedEntity,
+  SemanticConfig,
+  SpanMatch,
   createDefaultPolicy,
   mergePolicy,
-} from './types/index.js';
-import { createDefaultRegistry, RecognizerRegistry } from './recognizers/index.js';
-import { type INERModel, NERModelStub, createNERModel, DEFAULT_LABEL_MAP } from './ner/index.js';
-import { type NERModelMode, ensureModel, type DownloadProgressCallback } from './ner/model-manager.js';
-import { prenormalize } from './pipeline/prenormalize.js';
-import { resolveEntities } from './pipeline/resolver.js';
-import { tagEntities, countEntitiesByType } from './pipeline/tagger.js';
-import { validateOutput } from './pipeline/validator.js';
-import { encryptPIIMap, generateKey, type KeyProvider } from './crypto/index.js';
-import * as fs from 'fs/promises';
+} from "./types/index.js";
+import {
+  createDefaultRegistry,
+  RecognizerRegistry,
+} from "./recognizers/index.js";
+import {
+  type INERModel,
+  NERModelStub,
+  createNERModel,
+  DEFAULT_LABEL_MAP,
+} from "./ner/index.js";
+import {
+  type NERModelMode,
+  ensureModel,
+  type DownloadProgressCallback,
+} from "./ner/model-manager.js";
+import { prenormalize } from "./pipeline/prenormalize.js";
+import { resolveEntities } from "./pipeline/resolver.js";
+import { tagEntities, countEntitiesByType } from "./pipeline/tagger.js";
+import { validateOutput } from "./pipeline/validator.js";
+import { enrichSemantics } from "./pipeline/semantic-enricher.js";
+import {
+  ensureSemanticData,
+  isSemanticDataAvailable,
+} from "./pipeline/semantic-data-loader.js";
+import {
+  extractTitlesFromSpans,
+  mergeAdjacentTitleSpans,
+} from "./pipeline/title-extractor.js";
+import {
+  encryptPIIMap,
+  generateKey,
+  type KeyProvider,
+} from "./crypto/index.js";
+import * as fs from "fs/promises";
 
 /**
  * NER configuration options
@@ -106,28 +165,28 @@ export interface NERConfig {
    * - 'custom': Use custom model paths
    */
   mode: NERModelMode;
-  
+
   /**
    * Custom model path (required when mode is 'custom')
    */
   modelPath?: string;
-  
+
   /**
    * Custom vocab path (required when mode is 'custom')
    */
   vocabPath?: string;
-  
+
   /**
    * Whether to auto-download model if not present
    * @default true
    */
   autoDownload?: boolean;
-  
+
   /**
    * Callback for download progress
    */
   onDownloadProgress?: DownloadProgressCallback;
-  
+
   /**
    * Callback for status messages
    */
@@ -140,27 +199,34 @@ export interface NERConfig {
 export interface AnonymizerConfig {
   /** Recognizer registry (uses default if not provided) */
   registry?: RecognizerRegistry;
-  
+
   /**
    * NER configuration
    * @default { mode: 'disabled' }
    */
   ner?: NERConfig;
-  
-  /** 
+
+  /**
    * @deprecated Use `ner` instead. Direct NER model injection for advanced use cases.
    */
   nerModel?: INERModel;
-  
+
+  /**
+   * Semantic enrichment configuration
+   * Enables MT-friendly PII tags with gender/scope attributes
+   * @default { enabled: false }
+   */
+  semantic?: SemanticConfig;
+
   /** Key provider for encryption (generates random key if not provided) */
   keyProvider?: KeyProvider;
-  
+
   /** Default policy (uses default if not provided) */
   defaultPolicy?: AnonymizationPolicy;
-  
+
   /** Model version string */
   modelVersion?: string;
-  
+
   /** Policy version string */
   policyVersion?: string;
 }
@@ -173,46 +239,63 @@ export class Anonymizer {
   private registry: RecognizerRegistry;
   private nerModel: INERModel | null = null;
   private nerConfig: NERConfig;
+  private semanticConfig: SemanticConfig;
   private keyProvider: KeyProvider | null;
   private defaultPolicy: AnonymizationPolicy;
   private modelVersion: string;
   private policyVersion: string;
   private initialized = false;
+  private semanticDataReady = false;
 
   constructor(config: AnonymizerConfig = {}) {
     this.registry = config.registry ?? createDefaultRegistry();
     this.keyProvider = config.keyProvider ?? null;
     this.defaultPolicy = config.defaultPolicy ?? createDefaultPolicy();
-    this.policyVersion = config.policyVersion ?? '1.0.0';
-    
+    this.policyVersion = config.policyVersion ?? "1.0.0";
+
     // Handle NER configuration
     if (config.nerModel) {
       // Legacy: direct model injection
       this.nerModel = config.nerModel;
-      this.nerConfig = { mode: 'custom' };
+      this.nerConfig = { mode: "custom" };
       this.modelVersion = config.modelVersion ?? config.nerModel.version;
     } else {
-      this.nerConfig = config.ner ?? { mode: 'disabled' };
-      this.modelVersion = config.modelVersion ?? '1.0.0';
+      this.nerConfig = config.ner ?? { mode: "disabled" };
+      this.modelVersion = config.modelVersion ?? "1.0.0";
+    }
+
+    // Handle semantic configuration
+    this.semanticConfig = config.semantic ?? { enabled: false };
+
+    // If semantic is enabled, also enable it in the default policy
+    if (this.semanticConfig.enabled) {
+      this.defaultPolicy = {
+        ...this.defaultPolicy,
+        enableSemanticMasking: true,
+      };
     }
   }
 
   /**
    * Initializes the anonymizer
-   * Downloads NER model if needed and loads it
+   * Downloads NER model and semantic data if needed and loads them
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     // Handle NER model setup based on mode
-    if (this.nerConfig.mode === 'disabled') {
+    if (this.nerConfig.mode === "disabled") {
       this.nerModel = new NERModelStub();
-    } else if (this.nerConfig.mode === 'custom') {
-      if (this.nerConfig.modelPath === undefined || this.nerConfig.modelPath === '' ||
-          this.nerConfig.vocabPath === undefined || this.nerConfig.vocabPath === '') {
+    } else if (this.nerConfig.mode === "custom") {
+      if (
+        this.nerConfig.modelPath === undefined ||
+        this.nerConfig.modelPath === "" ||
+        this.nerConfig.vocabPath === undefined ||
+        this.nerConfig.vocabPath === ""
+      ) {
         throw new Error("NER mode 'custom' requires modelPath and vocabPath");
       }
-      
+
       this.nerModel = createNERModel({
         modelPath: this.nerConfig.modelPath,
         vocabPath: this.nerConfig.vocabPath,
@@ -228,16 +311,16 @@ export class Anonymizer {
           onStatus: this.nerConfig.onStatus,
         }
       );
-      
+
       // Load label map
       let labelMap = DEFAULT_LABEL_MAP;
       try {
-        const labelMapContent = await fs.readFile(labelMapPath, 'utf-8');
+        const labelMapContent = await fs.readFile(labelMapPath, "utf-8");
         labelMap = JSON.parse(labelMapContent) as string[];
       } catch {
         // Use default label map
       }
-      
+
       this.nerModel = createNERModel({
         modelPath,
         vocabPath,
@@ -245,14 +328,43 @@ export class Anonymizer {
         modelVersion: this.modelVersion,
       });
     }
-    
-    // Load the model
+
+    // Load the NER model
     if (!this.nerModel.loaded) {
-      this.nerConfig.onStatus?.('Loading NER model...');
+      this.nerConfig.onStatus?.("Loading NER model...");
       await this.nerModel.load();
-      this.nerConfig.onStatus?.('NER model loaded!');
+      this.nerConfig.onStatus?.("NER model loaded!");
     }
-    
+
+    // Handle semantic data setup if enabled
+    if (this.semanticConfig.enabled) {
+      const autoDownload = this.semanticConfig.autoDownload ?? true;
+
+      // Check if data is already available
+      if (!isSemanticDataAvailable()) {
+        if (!autoDownload) {
+          throw new Error(
+            "Semantic masking is enabled but data files are not available.\n\n" +
+              "To download automatically, use:\n" +
+              "  createAnonymizer({ semantic: { enabled: true, autoDownload: true } })\n\n" +
+              "Or disable semantic masking:\n" +
+              "  createAnonymizer({ semantic: { enabled: false } })"
+          );
+        }
+
+        // Download semantic data
+        await ensureSemanticData({
+          autoDownload: true,
+          onProgress: this.semanticConfig.onDownloadProgress,
+          onStatus: this.semanticConfig.onStatus,
+        });
+      } else {
+        this.semanticConfig.onStatus?.("Semantic data already cached");
+      }
+
+      this.semanticDataReady = true;
+    }
+
     this.modelVersion = this.nerModel.version;
     this.initialized = true;
   }
@@ -272,11 +384,12 @@ export class Anonymizer {
     if (!this.initialized) {
       await this.initialize();
     }
-    
+
     const startTime = performance.now();
 
     // Merge policy with defaults
-    const effectivePolicy = policy !== undefined ? mergePolicy(policy) : this.defaultPolicy;
+    const effectivePolicy =
+      policy !== undefined ? mergePolicy(policy) : this.defaultPolicy;
 
     // Step 1: Pre-normalize text
     const normalizedText = prenormalize(text);
@@ -285,7 +398,10 @@ export class Anonymizer {
     const regexMatches = this.registry.findAll(normalizedText, effectivePolicy);
 
     // Step 3: Run NER model
-    const nerResult = await this.nerModel!.predict(normalizedText, effectivePolicy);
+    const nerResult = await this.nerModel!.predict(
+      normalizedText,
+      effectivePolicy
+    );
     const nerMatches = nerResult.spans;
 
     // Step 4: Resolve and merge entities
@@ -296,10 +412,31 @@ export class Anonymizer {
       normalizedText
     );
 
+    // Step 4.5: Merge adjacent title+name PERSON spans (if semantic masking enabled)
+    // This fixes NER models that split "Mrs. Smith" into two entities
+    const mergedMatches: SpanMatch[] =
+      effectivePolicy.enableSemanticMasking === true
+        ? mergeAdjacentTitleSpans(resolvedMatches, normalizedText)
+        : resolvedMatches;
+
+    // Step 4.6: Extract titles from PERSON entities (if semantic masking enabled)
+    // This strips honorific titles (Dr., Mrs., etc.) so they remain visible for translation
+    const titleExtractedMatches = effectivePolicy.enableSemanticMasking
+      ? extractTitlesFromSpans(mergedMatches, normalizedText)
+      : mergedMatches;
+
+    // Step 4.6: Enrich with semantic attributes (if enabled)
+    // This adds gender for PERSON and scope for LOCATION entities
+    const enrichedMatches = effectivePolicy.enableSemanticMasking
+      ? enrichSemantics(titleExtractedMatches, {
+          locale: locale !== undefined ? locale.split("-")[0] : undefined, // Extract language code
+        })
+      : titleExtractedMatches;
+
     // Step 5: Tag entities and build PII map
     const { anonymizedText, entities, piiMap } = tagEntities(
       normalizedText,
-      resolvedMatches,
+      enrichedMatches,
       effectivePolicy
     );
 
@@ -318,13 +455,14 @@ export class Anonymizer {
         message: e.message,
       }));
       // eslint-disable-next-line no-console
-      console.warn('Validation warnings:', safeErrors);
+      console.warn("Validation warnings:", safeErrors);
     }
 
     // Step 7: Encrypt PII map
-    const encryptionKey = this.keyProvider !== null
-      ? await this.keyProvider.getKey()
-      : generateKey();
+    const encryptionKey =
+      this.keyProvider !== null
+        ? await this.keyProvider.getKey()
+        : generateKey();
 
     const encryptedPiiMap = encryptPIIMap(piiMap, encryptionKey);
 
@@ -340,7 +478,7 @@ export class Anonymizer {
     };
 
     // Step 9: Build result (without original text in entities)
-    const safeEntities: Omit<DetectedEntity, 'original'>[] = entities.map(
+    const safeEntities: Omit<DetectedEntity, "original">[] = entities.map(
       ({ original: _original, ...rest }) => rest
     );
 
@@ -375,7 +513,7 @@ export class Anonymizer {
   getNERModel(): INERModel | null {
     return this.nerModel;
   }
-  
+
   /**
    * Whether the anonymizer is initialized
    */
@@ -386,17 +524,17 @@ export class Anonymizer {
 
 /**
  * Creates an anonymizer with the specified configuration
- * 
+ *
  * @example
  * ```typescript
  * // Regex-only (no NER)
  * const anonymizer = createAnonymizer();
- * 
+ *
  * // With NER (auto-downloads model on first use)
  * const anonymizer = createAnonymizer({
  *   ner: { mode: 'quantized' }
  * });
- * 
+ *
  * // With NER and progress callback
  * const anonymizer = createAnonymizer({
  *   ner: {
@@ -418,12 +556,12 @@ export function createAnonymizer(config?: AnonymizerConfig): Anonymizer {
 export async function createAnonymizerWithNER(
   modelPath: string,
   vocabPath: string,
-  config?: Omit<AnonymizerConfig, 'nerModel' | 'ner'>
+  config?: Omit<AnonymizerConfig, "nerModel" | "ner">
 ): Promise<Anonymizer> {
   const anonymizer = new Anonymizer({
     ...config,
     ner: {
-      mode: 'custom',
+      mode: "custom",
       modelPath,
       vocabPath,
     },
@@ -471,7 +609,7 @@ export async function anonymizeRegexOnly(
 /**
  * Full anonymization with NER
  * Auto-downloads the quantized model on first use
- * 
+ *
  * @example
  * ```typescript
  * const result = await anonymizeWithNER(
@@ -485,16 +623,16 @@ export async function anonymizeRegexOnly(
  */
 export async function anonymizeWithNER(
   text: string,
-  nerConfig: Omit<NERConfig, 'mode'> & { mode?: 'standard' | 'quantized' },
+  nerConfig: Omit<NERConfig, "mode"> & { mode?: "standard" | "quantized" },
   policy?: Partial<AnonymizationPolicy>
 ): Promise<AnonymizationResult> {
   const anonymizer = createAnonymizer({
     ner: {
-      mode: nerConfig.mode ?? 'quantized',
+      mode: nerConfig.mode ?? "quantized",
       ...nerConfig,
     },
   });
-  
+
   await anonymizer.initialize();
 
   try {

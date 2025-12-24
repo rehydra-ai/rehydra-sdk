@@ -9,7 +9,7 @@ import {
   createPIIMapKey,
   type RawPIIMap,
 } from '../../src/pipeline/tagger.js';
-import { PIIType, SpanMatch, DetectionSource, createDefaultPolicy } from '../../src/types/index.js';
+import { PIIType, SpanMatch, DetectionSource, createDefaultPolicy, SemanticAttributes } from '../../src/types/index.js';
 
 describe('Tagger', () => {
   const defaultPolicy = createDefaultPolicy();
@@ -19,18 +19,83 @@ describe('Tagger', () => {
       expect(generateTag(PIIType.PERSON, 1)).toBe('<PII type="PERSON" id="1"/>');
       expect(generateTag(PIIType.EMAIL, 42)).toBe('<PII type="EMAIL" id="42"/>');
     });
+
+    it('should include gender attribute when provided', () => {
+      const semantic: SemanticAttributes = { gender: 'female' };
+      expect(generateTag(PIIType.PERSON, 1, semantic)).toBe('<PII type="PERSON" gender="female" id="1"/>');
+    });
+
+    it('should include scope attribute when provided', () => {
+      const semantic: SemanticAttributes = { scope: 'city' };
+      expect(generateTag(PIIType.LOCATION, 1, semantic)).toBe('<PII type="LOCATION" scope="city" id="1"/>');
+    });
+
+    it('should include both gender and scope when provided', () => {
+      const semantic: SemanticAttributes = { gender: 'male', scope: 'country' };
+      expect(generateTag(PIIType.PERSON, 1, semantic)).toBe('<PII type="PERSON" gender="male" scope="country" id="1"/>');
+    });
+
+    it('should not include unknown gender', () => {
+      const semantic: SemanticAttributes = { gender: 'unknown' };
+      expect(generateTag(PIIType.PERSON, 1, semantic)).toBe('<PII type="PERSON" id="1"/>');
+    });
+
+    it('should not include unknown scope', () => {
+      const semantic: SemanticAttributes = { scope: 'unknown' };
+      expect(generateTag(PIIType.LOCATION, 1, semantic)).toBe('<PII type="LOCATION" id="1"/>');
+    });
+
+    it('should handle undefined semantic', () => {
+      expect(generateTag(PIIType.PERSON, 1, undefined)).toBe('<PII type="PERSON" id="1"/>');
+    });
   });
 
   describe('parseTag', () => {
     it('should parse valid tags', () => {
       const result = parseTag('<PII type="PERSON" id="1"/>');
-      expect(result).toEqual({ type: PIIType.PERSON, id: 1 });
+      expect(result).toEqual({ type: PIIType.PERSON, id: 1, semantic: undefined });
     });
 
     it('should return null for invalid tags', () => {
       expect(parseTag('<PII type="INVALID" id="1"/>')).toBeNull();
       expect(parseTag('<PII type="PERSON"/>')).toBeNull();
       expect(parseTag('not a tag')).toBeNull();
+    });
+
+    it('should parse tags with gender attribute', () => {
+      const result = parseTag('<PII type="PERSON" gender="female" id="1"/>');
+      expect(result).toEqual({
+        type: PIIType.PERSON,
+        id: 1,
+        semantic: { gender: 'female' },
+      });
+    });
+
+    it('should parse tags with scope attribute', () => {
+      const result = parseTag('<PII type="LOCATION" scope="city" id="1"/>');
+      expect(result).toEqual({
+        type: PIIType.LOCATION,
+        id: 1,
+        semantic: { scope: 'city' },
+      });
+    });
+
+    it('should parse tags with both gender and scope', () => {
+      const result = parseTag('<PII type="PERSON" gender="male" scope="country" id="1"/>');
+      expect(result).toEqual({
+        type: PIIType.PERSON,
+        id: 1,
+        semantic: { gender: 'male', scope: 'country' },
+      });
+    });
+
+    it('should ignore invalid semantic values', () => {
+      const result = parseTag('<PII type="PERSON" gender="invalid" id="1"/>');
+      expect(result).toEqual({
+        type: PIIType.PERSON,
+        id: 1,
+        semantic: {},
+      });
     });
   });
 
@@ -110,6 +175,77 @@ describe('Tagger', () => {
       expect(result.anonymizedText).toBe('Hello World!');
       expect(result.entities).toHaveLength(0);
     });
+
+    describe('semantic attributes in tagEntities', () => {
+      it('should include gender in tag when semantic is present', () => {
+        const text = 'Hello Mary!';
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.PERSON,
+            start: 6,
+            end: 10,
+            confidence: 0.9,
+            source: DetectionSource.NER,
+            text: 'Mary',
+            semantic: { gender: 'female' },
+          },
+        ];
+
+        const result = tagEntities(text, matches, defaultPolicy);
+
+        expect(result.anonymizedText).toBe('Hello <PII type="PERSON" gender="female" id="1"/>!');
+        expect(result.entities[0]?.semantic?.gender).toBe('female');
+      });
+
+      it('should include scope in tag when semantic is present', () => {
+        const text = 'Visit Berlin!';
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.LOCATION,
+            start: 6,
+            end: 12,
+            confidence: 0.9,
+            source: DetectionSource.NER,
+            text: 'Berlin',
+            semantic: { scope: 'city' },
+          },
+        ];
+
+        const result = tagEntities(text, matches, defaultPolicy);
+
+        expect(result.anonymizedText).toBe('Visit <PII type="LOCATION" scope="city" id="1"/>!');
+        expect(result.entities[0]?.semantic?.scope).toBe('city');
+      });
+
+      it('should preserve semantic attributes in entities', () => {
+        const text = 'Mary in Berlin';
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.PERSON,
+            start: 0,
+            end: 4,
+            confidence: 0.9,
+            source: DetectionSource.NER,
+            text: 'Mary',
+            semantic: { gender: 'female' },
+          },
+          {
+            type: PIIType.LOCATION,
+            start: 8,
+            end: 14,
+            confidence: 0.9,
+            source: DetectionSource.NER,
+            text: 'Berlin',
+            semantic: { scope: 'city' },
+          },
+        ];
+
+        const result = tagEntities(text, matches, defaultPolicy);
+
+        expect(result.entities[0]?.semantic?.gender).toBe('female');
+        expect(result.entities[1]?.semantic?.scope).toBe('city');
+      });
+    });
   });
 
   describe('extractTags', () => {
@@ -120,6 +256,43 @@ describe('Tagger', () => {
       expect(tags).toHaveLength(2);
       expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1, position: 6 });
       expect(tags[1]).toMatchObject({ type: PIIType.EMAIL, id: 2, position: 38 });
+    });
+
+    describe('semantic attributes extraction', () => {
+      it('should extract gender attribute', () => {
+        const text = 'Hello <PII type="PERSON" gender="female" id="1"/> world';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic?.gender).toBe('female');
+      });
+
+      it('should extract scope attribute', () => {
+        const text = 'Visit <PII type="LOCATION" scope="city" id="1"/> soon';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic?.scope).toBe('city');
+      });
+
+      it('should extract both gender and scope', () => {
+        const text = 'In <PII type="LOCATION" gender="female" scope="country" id="1"/>';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic?.gender).toBe('female');
+        expect(tags[0]?.semantic?.scope).toBe('country');
+      });
+
+      it('should handle fuzzy matching with semantic attributes', () => {
+        // Using Unicode: \u201C = " and \u201D = "
+        const text = 'Hello <PII type=\u201CPERSON\u201D gender=\u201Cmale\u201D id=\u201C1\u201D/> world';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.type).toBe(PIIType.PERSON);
+        expect(tags[0]?.semantic?.gender).toBe('male');
+      });
     });
 
     describe('fuzzy matching for translation artifacts', () => {

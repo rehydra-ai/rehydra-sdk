@@ -1,14 +1,83 @@
-import { PIIType, DEFAULT_TYPE_PRIORITY } from './pii-types.js';
+import { PIIType, DEFAULT_TYPE_PRIORITY } from "./pii-types.js";
 
-export * from './pii-types.js';
+export * from "./pii-types.js";
 
 /**
  * Source of entity detection
  */
 export enum DetectionSource {
-  REGEX = 'REGEX',
-  NER = 'NER',
-  HYBRID = 'HYBRID',
+  REGEX = "REGEX",
+  NER = "NER",
+  HYBRID = "HYBRID",
+}
+
+// ============================================================================
+// Semantic Attributes for MT-friendly PII tags
+// ============================================================================
+
+/**
+ * Gender attribute for PERSON entities
+ * Used to preserve grammatical agreement during machine translation
+ */
+export type PersonGender = "male" | "female" | "neutral" | "unknown";
+
+/**
+ * Scope attribute for LOCATION entities
+ * Helps MT engines select correct prepositions (e.g., "in Berlin" vs "in Germany")
+ */
+export type LocationScope = "city" | "country" | "region" | "unknown";
+
+/**
+ * Semantic attributes for PII entities
+ * These attributes help preserve linguistic context during translation
+ */
+export interface SemanticAttributes {
+  /** Gender for PERSON entities */
+  gender?: PersonGender;
+  /** Geographic scope for LOCATION entities */
+  scope?: LocationScope;
+  /** Honorific title extracted from PERSON entities (e.g., "Dr.", "Mrs.") */
+  title?: string;
+}
+
+/**
+ * Progress callback for semantic data downloads
+ */
+export type SemanticDownloadProgressCallback = (progress: {
+  file: string;
+  bytesDownloaded: number;
+  totalBytes: number | null;
+  percent: number | null;
+}) => void;
+
+/**
+ * Semantic enrichment configuration
+ * Controls automatic downloading and loading of semantic data for MT-friendly PII tags
+ */
+export interface SemanticConfig {
+  /**
+   * Whether to enable semantic masking (adds gender/scope attributes to PII tags)
+   * @default false
+   */
+  enabled: boolean;
+
+  /**
+   * Whether to auto-download semantic data if not present
+   * Data files include name-gender mappings (~40K names) and location data (~25K cities)
+   * Total download size: ~4 MB
+   * @default true when enabled is true
+   */
+  autoDownload?: boolean;
+
+  /**
+   * Callback for download progress
+   */
+  onDownloadProgress?: SemanticDownloadProgressCallback;
+
+  /**
+   * Callback for status messages
+   */
+  onStatus?: (status: string) => void;
 }
 
 /**
@@ -29,6 +98,8 @@ export interface DetectedEntity {
   source: DetectionSource;
   /** Original text (only stored in encrypted pii_map, never logged) */
   original: string;
+  /** Semantic attributes for MT-friendly tags (gender, scope, etc.) */
+  semantic?: SemanticAttributes;
 }
 
 /**
@@ -47,6 +118,8 @@ export interface SpanMatch {
   source: DetectionSource;
   /** The matched text */
   text: string;
+  /** Semantic attributes for MT-friendly tags (gender, scope, etc.) */
+  semantic?: SemanticAttributes;
 }
 
 /**
@@ -87,6 +160,8 @@ export interface AnonymizationPolicy {
   reuseIdsForRepeatedPII: boolean;
   /** Whether to run leak scan on anonymized output */
   enableLeakScan: boolean;
+  /** Enable semantic attribute enrichment for MT-friendly tags (gender, location scope) */
+  enableSemanticMasking: boolean;
 }
 
 /**
@@ -126,7 +201,7 @@ export interface AnonymizationResult {
   /** Text with PII replaced by placeholder tags */
   anonymizedText: string;
   /** List of detected entities (without original text for safety) */
-  entities: Omit<DetectedEntity, 'original'>[];
+  entities: Omit<DetectedEntity, "original">[];
   /** Encrypted mapping of (type, id) -> original string */
   piiMap: EncryptedPIIMap;
   /** Statistics about the anonymization */
@@ -142,7 +217,10 @@ export function createDefaultPolicy(): AnonymizationPolicy {
   const defaultThresholds = new Map<PIIType, number>();
   for (const type of allTypes) {
     // Higher threshold for NER-detected types (more uncertainty)
-    defaultThresholds.set(type, type === PIIType.PERSON || type === PIIType.ORG ? 0.7 : 0.5);
+    defaultThresholds.set(
+      type,
+      type === PIIType.PERSON || type === PIIType.ORG ? 0.7 : 0.5
+    );
   }
 
   return {
@@ -172,26 +250,35 @@ export function createDefaultPolicy(): AnonymizationPolicy {
     denylistPatterns: [],
     reuseIdsForRepeatedPII: false,
     enableLeakScan: true,
+    enableSemanticMasking: false,
   };
 }
 
 /**
  * Merges a partial policy with defaults
  */
-export function mergePolicy(partial: Partial<AnonymizationPolicy>): AnonymizationPolicy {
+export function mergePolicy(
+  partial: Partial<AnonymizationPolicy>
+): AnonymizationPolicy {
   const defaultPolicy = createDefaultPolicy();
 
   return {
     enabledTypes: partial.enabledTypes ?? defaultPolicy.enabledTypes,
-    regexEnabledTypes: partial.regexEnabledTypes ?? defaultPolicy.regexEnabledTypes,
+    regexEnabledTypes:
+      partial.regexEnabledTypes ?? defaultPolicy.regexEnabledTypes,
     nerEnabledTypes: partial.nerEnabledTypes ?? defaultPolicy.nerEnabledTypes,
     typePriority: partial.typePriority ?? defaultPolicy.typePriority,
-    confidenceThresholds: partial.confidenceThresholds ?? defaultPolicy.confidenceThresholds,
-    customIdPatterns: partial.customIdPatterns ?? defaultPolicy.customIdPatterns,
+    confidenceThresholds:
+      partial.confidenceThresholds ?? defaultPolicy.confidenceThresholds,
+    customIdPatterns:
+      partial.customIdPatterns ?? defaultPolicy.customIdPatterns,
     allowlistTerms: partial.allowlistTerms ?? defaultPolicy.allowlistTerms,
-    denylistPatterns: partial.denylistPatterns ?? defaultPolicy.denylistPatterns,
-    reuseIdsForRepeatedPII: partial.reuseIdsForRepeatedPII ?? defaultPolicy.reuseIdsForRepeatedPII,
+    denylistPatterns:
+      partial.denylistPatterns ?? defaultPolicy.denylistPatterns,
+    reuseIdsForRepeatedPII:
+      partial.reuseIdsForRepeatedPII ?? defaultPolicy.reuseIdsForRepeatedPII,
     enableLeakScan: partial.enableLeakScan ?? defaultPolicy.enableLeakScan,
+    enableSemanticMasking:
+      partial.enableSemanticMasking ?? defaultPolicy.enableSemanticMasking,
   };
 }
-
