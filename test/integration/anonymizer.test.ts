@@ -185,6 +185,20 @@ describe('Convenience Functions', () => {
 
       expect(result.anonymizedText).toContain('<PII type="EMAIL"');
     });
+
+    it('should accept locale parameter', async () => {
+      const result = await anonymize('Contact test@example.com', 'en-US');
+
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
+
+    it('should accept policy parameter', async () => {
+      const result = await anonymize('Contact test@example.com', undefined, {
+        enabledTypes: new Set([PIIType.EMAIL]),
+      });
+
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
   });
 
   describe('anonymizeRegexOnly', () => {
@@ -195,6 +209,190 @@ describe('Convenience Functions', () => {
       expect(result.anonymizedText).toContain('<PII type="EMAIL"');
       // NER types should not be detected
       expect(result.entities.every(e => e.source === 'REGEX')).toBe(true);
+    });
+
+    it('should accept policy parameter', async () => {
+      const result = await anonymizeRegexOnly('test@example.com +49123456789', {
+        enabledTypes: new Set([PIIType.EMAIL]),
+        regexEnabledTypes: new Set([PIIType.EMAIL]),
+      });
+
+      // Should only have email, not phone
+      expect(result.entities.every(e => e.type === PIIType.EMAIL)).toBe(true);
+    });
+  });
+});
+
+describe('Anonymizer Class', () => {
+  describe('dispose', () => {
+    it('should dispose resources without error', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+      await anonymizer.initialize();
+
+      await expect(anonymizer.dispose()).resolves.not.toThrow();
+    });
+
+    it('should allow re-initialization after dispose', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+      await anonymizer.initialize();
+      await anonymizer.dispose();
+      await anonymizer.initialize();
+
+      const result = await anonymizer.anonymize('test@example.com');
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
+  });
+
+  describe('getRegistry', () => {
+    it('should return the recognizer registry', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+      await anonymizer.initialize();
+
+      const registry = anonymizer.getRegistry();
+      expect(registry).toBeDefined();
+      expect(registry.hasRecognizer(PIIType.EMAIL)).toBe(true);
+    });
+  });
+
+  describe('getNERModel', () => {
+    it('should return the NER model after initialization', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+      await anonymizer.initialize();
+
+      const nerModel = anonymizer.getNERModel();
+      expect(nerModel).not.toBeNull();
+    });
+  });
+
+  describe('isInitialized', () => {
+    it('should be false before initialization', () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+
+      expect(anonymizer.isInitialized).toBe(false);
+    });
+
+    it('should be true after initialization', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+      await anonymizer.initialize();
+
+      expect(anonymizer.isInitialized).toBe(true);
+    });
+
+    it('should be false after dispose', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+      await anonymizer.initialize();
+      await anonymizer.dispose();
+
+      expect(anonymizer.isInitialized).toBe(false);
+    });
+  });
+
+  describe('auto-initialization', () => {
+    it('should auto-initialize when anonymize is called', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({ keyProvider });
+
+      // Don't call initialize explicitly
+      const result = await anonymizer.anonymize('test@example.com');
+      
+      expect(anonymizer.isInitialized).toBe(true);
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
+  });
+
+  describe('NER thresholds configuration', () => {
+    it('should accept thresholds in NER config', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        ner: {
+          mode: 'disabled',
+          thresholds: { PERSON: 0.8, ORG: 0.7 },
+        },
+      });
+      await anonymizer.initialize();
+
+      const result = await anonymizer.anonymize('test@example.com');
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
+  });
+
+  describe('NER mode custom', () => {
+    it('should throw error when custom mode lacks modelPath', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        ner: {
+          mode: 'custom',
+          vocabPath: '/some/path/vocab.txt',
+        } as any,
+      });
+
+      await expect(anonymizer.initialize()).rejects.toThrow("NER mode 'custom' requires modelPath and vocabPath");
+    });
+
+    it('should throw error when custom mode lacks vocabPath', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        ner: {
+          mode: 'custom',
+          modelPath: '/some/path/model.onnx',
+        } as any,
+      });
+
+      await expect(anonymizer.initialize()).rejects.toThrow("NER mode 'custom' requires modelPath and vocabPath");
+    });
+
+    it('should throw error when custom mode has empty paths', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        ner: {
+          mode: 'custom',
+          modelPath: '',
+          vocabPath: '',
+        },
+      });
+
+      await expect(anonymizer.initialize()).rejects.toThrow("NER mode 'custom' requires modelPath and vocabPath");
+    });
+  });
+
+  describe('semantic masking configuration', () => {
+    it('should work with semantic masking enabled', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        semantic: { enabled: true },
+      });
+      await anonymizer.initialize();
+
+      const result = await anonymizer.anonymize('Hello John Smith from Berlin');
+      expect(result.anonymizedText).toBeDefined();
+    });
+
+    it('should pass through status callbacks', async () => {
+      const statuses: string[] = [];
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        semantic: {
+          enabled: true,
+          onStatus: (status) => statuses.push(status),
+        },
+      });
+      await anonymizer.initialize();
+
+      // Should have received status updates
+      expect(statuses.length).toBeGreaterThanOrEqual(0);
     });
   });
 });

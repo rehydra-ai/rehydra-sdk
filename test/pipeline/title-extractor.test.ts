@@ -521,5 +521,88 @@ describe("Title Extractor", () => {
       expect(result[0]?.text).toBe("Dr. Smith");
       expect(result[1]?.text).toBe("Mrs. Jones");
     });
+
+    it("should not merge when gap contains non-whitespace characters", () => {
+      const text = "Dr.XXSmith";  // Non-whitespace in gap
+      const spans: SpanMatch[] = [
+        {
+          type: PIIType.PERSON,
+          start: 0,
+          end: 3, // "Dr."
+          confidence: 0.8,
+          source: DetectionSource.NER,
+          text: "Dr.",
+        },
+        {
+          type: PIIType.PERSON,
+          start: 5,
+          end: 10, // "Smith"
+          confidence: 0.9,
+          source: DetectionSource.NER,
+          text: "Smith",
+        },
+      ];
+
+      const result = mergeAdjacentTitleSpans(spans, text);
+
+      // Should not merge due to non-whitespace gap
+      expect(result.length).toBe(2);
+    });
+
+    it("should not merge when gap is too large", () => {
+      const text = "Dr.                           Smith";  // Large gap
+      const spans: SpanMatch[] = [
+        {
+          type: PIIType.PERSON,
+          start: 0,
+          end: 3, // "Dr."
+          confidence: 0.8,
+          source: DetectionSource.NER,
+          text: "Dr.",
+        },
+        {
+          type: PIIType.PERSON,
+          start: 30,
+          end: 35, // "Smith"
+          confidence: 0.9,
+          source: DetectionSource.NER,
+          text: "Smith",
+        },
+      ];
+
+      const result = mergeAdjacentTitleSpans(spans, text);
+
+      // Should not merge due to large gap
+      expect(result.length).toBe(2);
+    });
+
+    it("should preserve semantic attributes when merging", () => {
+      const text = "Hello Dr. Smith";
+      const spans: SpanMatch[] = [
+        {
+          type: PIIType.PERSON,
+          start: 6,
+          end: 9, // "Dr."
+          confidence: 0.8,
+          source: DetectionSource.NER,
+          text: "Dr.",
+          semantic: { title: "Dr." },
+        },
+        {
+          type: PIIType.PERSON,
+          start: 10,
+          end: 15, // "Smith"
+          confidence: 0.9,
+          source: DetectionSource.NER,
+          text: "Smith",
+          semantic: { gender: "male" },
+        },
+      ];
+
+      const result = mergeAdjacentTitleSpans(spans, text);
+
+      expect(result.length).toBe(1);
+      expect(result[0]?.semantic?.gender).toBe("male");
+    });
   });
 });

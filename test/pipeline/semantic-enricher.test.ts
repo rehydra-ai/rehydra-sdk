@@ -327,5 +327,29 @@ describe("Semantic Enricher", () => {
       const result = classifyLocation("Xyzabc12345UnlikelyLocation");
       expect(result.scope).toBe("unknown");
     });
+
+    it("should return false for hasName when data not available and name unknown", () => {
+      clearSemanticData();
+
+      // Unknown name returns false
+      expect(hasName("Xyzabc12345UnlikelyName")).toBe(false);
+    });
+
+    it("should return false for hasLocation when data not available and location unknown", () => {
+      clearSemanticData();
+
+      // Unknown location returns false
+      expect(hasLocation("Xyzabc12345UnlikelyLocation")).toBe(false);
+    });
+
+    it("should handle empty string in hasName", () => {
+      clearSemanticData();
+      expect(hasName("")).toBe(false);
+    });
+
+    it("should handle empty string in hasLocation", () => {
+      clearSemanticData();
+      expect(hasLocation("")).toBe(false);
+    });
   });
 });

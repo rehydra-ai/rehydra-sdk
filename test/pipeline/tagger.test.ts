@@ -422,6 +422,50 @@ describe('Tagger', () => {
 
         expect(tags).toHaveLength(0);
       });
+
+      it('should match tags with gender attribute', () => {
+        const text = 'Hello <PII type="PERSON" gender="female" id="1"/> world';
+        const tags = extractTagsStrict(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+        expect(tags[0]?.semantic?.gender).toBe('female');
+      });
+
+      it('should match tags with scope attribute', () => {
+        const text = 'Visit <PII type="LOCATION" scope="city" id="1"/> soon';
+        const tags = extractTagsStrict(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.LOCATION, id: 1 });
+        expect(tags[0]?.semantic?.scope).toBe('city');
+      });
+
+      it('should match tags with both gender and scope', () => {
+        const text = 'Hello <PII type="PERSON" gender="male" scope="country" id="1"/> test';
+        const tags = extractTagsStrict(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic?.gender).toBe('male');
+        expect(tags[0]?.semantic?.scope).toBe('country');
+      });
+
+      it('should handle multiple tags with different attributes', () => {
+        const text = '<PII type="PERSON" gender="female" id="1"/> lives in <PII type="LOCATION" scope="city" id="2"/>';
+        const tags = extractTagsStrict(text);
+
+        expect(tags).toHaveLength(2);
+        expect(tags[0]?.semantic?.gender).toBe('female');
+        expect(tags[1]?.semantic?.scope).toBe('city');
+      });
+
+      it('should not include semantic for tags without gender/scope', () => {
+        const text = 'Email: <PII type="EMAIL" id="1"/>';
+        const tags = extractTagsStrict(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic).toBeUndefined();
+      });
     });
   });
 
