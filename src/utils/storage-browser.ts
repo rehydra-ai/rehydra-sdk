@@ -438,27 +438,5 @@ export class BrowserStorageProvider implements StorageProvider {
   getCacheDir(subdir: string): string {
     return join(CACHE_PREFIX, subdir);
   }
-
-  /**
-   * Extracts a ZIP file using fflate
-   */
-  async extractZip(zipData: Uint8Array, destDir: string): Promise<string[]> {
-    // Import fflate dynamically
-    const { unzipSync } = await import("fflate");
-
-    const files = unzipSync(zipData);
-    const extractedPaths: string[] = [];
-
-    for (const [filename, data] of Object.entries(files)) {
-      // Skip directories
-      if (filename.endsWith("/")) continue;
-
-      const destPath = join(destDir, filename);
-      await this.writeFile(destPath, data);
-      extractedPaths.push(destPath);
-    }
-
-    return extractedPaths;
-  }
 }
 

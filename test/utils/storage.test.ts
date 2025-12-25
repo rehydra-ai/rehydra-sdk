@@ -167,7 +167,6 @@ describe("Storage Utilities", () => {
       expect(typeof provider.mkdir).toBe("function");
       expect(typeof provider.rm).toBe("function");
       expect(typeof provider.getCacheDir).toBe("function");
-      expect(typeof provider.extractZip).toBe("function");
     });
 
     it("should return the same provider on subsequent calls", async () => {
@@ -193,7 +192,6 @@ describe("Storage Utilities", () => {
         mkdir: async () => {},
         rm: async () => {},
         getCacheDir: () => "/mock/cache",
-        extractZip: async () => [],
       };
 
       setStorageProvider(mockProvider);
@@ -427,53 +425,6 @@ describe("NodeStorageProvider", () => {
     });
   });
 
-  describe("extractZip", () => {
-    it("should extract a valid ZIP file using fflate", async () => {
-      // Create a simple ZIP using fflate
-      const { zipSync } = await import("fflate");
-      const zipData = zipSync({
-        "file1.txt": new TextEncoder().encode("Content 1"),
-        "file2.txt": new TextEncoder().encode("Content 2"),
-      });
-
-      const extractDir = nodePath.join(tempDir, "extracted");
-      await fs.mkdir(extractDir, { recursive: true });
-
-      const extractedPaths = await provider.extractZip(zipData, extractDir);
-
-      expect(extractedPaths.length).toBe(2);
-
-      const content1 = await fs.readFile(
-        nodePath.join(extractDir, "file1.txt"),
-        "utf-8"
-      );
-      expect(content1).toBe("Content 1");
-
-      const content2 = await fs.readFile(
-        nodePath.join(extractDir, "file2.txt"),
-        "utf-8"
-      );
-      expect(content2).toBe("Content 2");
-    });
-
-    it("should skip directories in ZIP", async () => {
-      const { zipSync } = await import("fflate");
-      // fflate represents directories with trailing slash
-      const zipData = zipSync({
-        "subdir/": new Uint8Array(0),
-        "subdir/file.txt": new TextEncoder().encode("Nested content"),
-      });
-
-      const extractDir = nodePath.join(tempDir, "extracted-with-dir");
-      await fs.mkdir(extractDir, { recursive: true });
-
-      const extractedPaths = await provider.extractZip(zipData, extractDir);
-
-      // Should only have the file, not the directory entry
-      expect(extractedPaths.length).toBe(1);
-      expect(extractedPaths[0]).toContain("file.txt");
-    });
-  });
 });
 
 describe("BrowserStorageProvider (mock tests)", () => {
@@ -498,7 +449,6 @@ describe("BrowserStorageProvider (mock tests)", () => {
     expect(typeof provider.mkdir).toBe("function");
     expect(typeof provider.rm).toBe("function");
     expect(typeof provider.getCacheDir).toBe("function");
-    expect(typeof provider.extractZip).toBe("function");
   });
 
   it("should return virtual cache path", async () => {

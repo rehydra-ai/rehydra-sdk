@@ -45,14 +45,6 @@ export interface StorageProvider {
    * @param subdir - Subdirectory name (e.g., 'models', 'semantic-data')
    */
   getCacheDir(subdir: string): string;
-
-  /**
-   * Extracts a ZIP file to a directory
-   * @param zipData - ZIP file data
-   * @param destDir - Destination directory
-   * @returns Array of extracted file paths
-   */
-  extractZip(zipData: Uint8Array, destDir: string): Promise<string[]>;
 }
 
 // ============================================================================

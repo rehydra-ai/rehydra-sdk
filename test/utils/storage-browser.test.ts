@@ -161,40 +161,6 @@ describe("BrowserStorageProvider", () => {
     });
   });
 
-  describe("extractZip", () => {
-    it("should extract ZIP files using fflate", async () => {
-      const { zipSync } = await import("fflate");
-      const zipData = zipSync({
-        "file1.txt": new TextEncoder().encode("Content 1"),
-        "file2.txt": new TextEncoder().encode("Content 2"),
-      });
-
-      const extractedPaths = await provider.extractZip(zipData, "extracted");
-
-      expect(extractedPaths.length).toBe(2);
-      expect(extractedPaths).toContain("extracted/file1.txt");
-      expect(extractedPaths).toContain("extracted/file2.txt");
-
-      // Verify content was written
-      const content1 = await provider.readTextFile("extracted/file1.txt");
-      expect(content1).toBe("Content 1");
-    });
-
-    it("should skip directories in ZIP", async () => {
-      const { zipSync } = await import("fflate");
-      const zipData = zipSync({
-        "subdir/": new Uint8Array(0), // Directory entry
-        "subdir/file.txt": new TextEncoder().encode("Nested"),
-      });
-
-      const extractedPaths = await provider.extractZip(zipData, "extracted2");
-
-      // Should only have the file, not the directory
-      expect(extractedPaths.length).toBe(1);
-      expect(extractedPaths[0]).toContain("file.txt");
-    });
-  });
-
   describe("OPFS path detection", () => {
     it("should identify ONNX model files as OPFS candidates", async () => {
       // This tests the internal shouldUseOPFS logic via write/read

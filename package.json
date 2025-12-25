@@ -34,9 +34,7 @@
     "type": "git",
     "url": "git+https://github.com/elanlanguages/bridge-anonymization.git"
   },
-  "dependencies": {
-    "fflate": "^0.8.2"
-  },
+  "dependencies": {},
   "optionalDependencies": {
     "onnxruntime-node": "^1.17.0"
   },
