@@ -1,6 +1,6 @@
 {
   "name": "@elanlanguages/bridge-anonymization",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "On-device PII anonymization module for high-privacy translation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
