@@ -80,7 +80,7 @@ describe('Anonymizer Integration', () => {
       const result = await anonymizer.anonymize(text);
 
       const key = await keyProvider.getKey();
-      const decrypted = decryptPIIMap(result.piiMap, key);
+      const decrypted = await decryptPIIMap(result.piiMap, key);
 
       expect(decrypted.size).toBe(1);
       expect(Array.from(decrypted.values())).toContain('john@example.com');

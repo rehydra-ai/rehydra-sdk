@@ -104,7 +104,11 @@ export {
   generateSalt,
   KeyProvider,
   InMemoryKeyProvider,
-  EnvKeyProvider,
+  ConfigKeyProvider,
+  validateKey,
+  secureCompare,
+  uint8ArrayToBase64,
+  base64ToUint8Array,
 } from "./crypto/index.js";
 
 // Main anonymization imports
@@ -476,7 +480,7 @@ export class Anonymizer {
         ? await this.keyProvider.getKey()
         : generateKey();
 
-    const encryptedPiiMap = encryptPIIMap(piiMap, encryptionKey);
+    const encryptedPiiMap = await encryptPIIMap(piiMap, encryptionKey);
 
     // Step 8: Build stats
     const endTime = performance.now();
