@@ -16,16 +16,11 @@ import {
 } from "../types/index.js";
 
 import {
-  isSemanticDataAvailable,
+  isSemanticDataDownloaded,
   loadSemanticData,
-  lookupGender,
-  lookupLocationType,
+  getSemanticDataSync,
   getDataStats,
-  getDataDirectory,
 } from "./semantic-data-loader.js";
-
-// Re-export data availability check and other exports from data loader
-export { isSemanticDataAvailable, getDataDirectory };
 
 /**
  * Configuration for semantic enrichment
@@ -61,25 +56,36 @@ export interface LocationResult {
 let dataInitialized = false;
 
 /**
- * Ensures semantic data is loaded synchronously (assumes files are already downloaded)
+ * Initializes semantic data (async, must be called before sync functions)
  * @throws Error if data files are not available
  */
-function ensureDataLoaded(): void {
+export async function initializeEnricher(): Promise<void> {
   if (dataInitialized) return;
 
-  if (!isSemanticDataAvailable()) {
+  const available = await isSemanticDataDownloaded();
+  if (!available) {
     throw new Error(
       `Semantic enrichment data not available. ` +
         `Use ensureSemanticData() or createAnonymizer({ semantic: { enabled: true } }) to download.`
     );
   }
 
-  loadSemanticData();
+  await loadSemanticData();
   dataInitialized = true;
 }
 
 /**
+ * Checks if enricher is ready for synchronous operations
+ */
+export function isEnricherReady(): boolean {
+  return dataInitialized && getSemanticDataSync() !== null;
+}
+
+/**
  * Enriches PII spans with semantic attributes based on lookup tables
+ *
+ * NOTE: This function requires semantic data to be pre-loaded via initializeEnricher()
+ * or through createAnonymizer({ semantic: { enabled: true } }).
  *
  * @param spans - Array of detected PII spans
  * @param config - Optional configuration for enrichment
@@ -96,13 +102,11 @@ export function enrichSemantics(
   spans: SpanMatch[],
   config?: EnricherConfig
 ): SpanMatch[] {
-  // Ensure data is loaded
-  if (!dataInitialized) {
-    if (!isSemanticDataAvailable()) {
-      // Silently skip enrichment if data not available
-      return spans;
-    }
-    ensureDataLoaded();
+  // Check if data is loaded
+  const data = getSemanticDataSync();
+  if (data === null) {
+    // Silently skip enrichment if data not available
+    return spans;
   }
 
   return spans.map((span) => {
@@ -148,6 +152,74 @@ function enrichLocation(span: SpanMatch): SpanMatch {
 }
 
 /**
+ * Looks up gender for a name in the database (synchronous)
+ */
+function lookupGenderSync(
+  name: string,
+  locale?: string
+): string | undefined {
+  const data = getSemanticDataSync();
+  if (data === null) return undefined;
+
+  const entry = data.names.get(name.toLowerCase());
+  if (entry === undefined) return undefined;
+
+  // Check for locale-specific override
+  if (
+    locale !== undefined &&
+    locale !== "" &&
+    entry.localeOverrides !== undefined &&
+    entry.localeOverrides[locale] !== undefined
+  ) {
+    return entry.localeOverrides[locale];
+  }
+
+  return entry.gender;
+}
+
+/**
+ * Population threshold for "major" cities that take precedence over regions
+ */
+const MAJOR_CITY_POPULATION = 500000;
+
+/**
+ * Looks up location type synchronously
+ */
+function lookupLocationTypeSync(
+  location: string
+): { type: "city" | "country" | "region"; countryCode?: string } | undefined {
+  const data = getSemanticDataSync();
+  if (data === null) return undefined;
+
+  const normalized = location.toLowerCase().trim();
+
+  // Check countries FIRST (to avoid "USA" being matched as a city)
+  const countryCode = data.countries.get(normalized);
+  if (countryCode !== undefined) {
+    return { type: "country", countryCode };
+  }
+
+  // Check cities - if it's a major city (pop > 500K), prioritize it over regions
+  const city = data.cities.get(normalized);
+  if (city && city.population >= MAJOR_CITY_POPULATION) {
+    return { type: "city", countryCode: city.country };
+  }
+
+  // Check regions
+  const region = data.regions.get(normalized);
+  if (region) {
+    return { type: "region", countryCode: region.country };
+  }
+
+  // Check remaining cities (smaller cities)
+  if (city) {
+    return { type: "city", countryCode: city.country };
+  }
+
+  return undefined;
+}
+
+/**
  * Infers gender from a person's name using the lookup database
  *
  * @param name - Full name or first name
@@ -169,15 +241,12 @@ export function inferGender(name: string, locale?: string): GenderResult {
   }
 
   // Check if data is available
-  if (!dataInitialized && !isSemanticDataAvailable()) {
+  const data = getSemanticDataSync();
+  if (data === null) {
     return { gender: "unknown", confidence: 0, source: "unknown" };
   }
 
-  if (!dataInitialized) {
-    ensureDataLoaded();
-  }
-
-  const gender = lookupGender(firstName, locale);
+  const gender = lookupGenderSync(firstName, locale);
 
   if (gender === undefined || gender === "") {
     return { gender: "unknown", confidence: 0, source: "unknown" };
@@ -205,22 +274,19 @@ export function inferGender(name: string, locale?: string): GenderResult {
  */
 export function classifyLocation(location: string): LocationResult {
   // Check if data is available
-  if (!dataInitialized && !isSemanticDataAvailable()) {
+  const data = getSemanticDataSync();
+  if (data === null) {
     return { scope: "unknown", confidence: 0 };
   }
 
-  if (!dataInitialized) {
-    ensureDataLoaded();
-  }
-
   const normalized = normalizeLocationName(location);
-  const result = lookupLocationType(normalized);
+  const result = lookupLocationTypeSync(normalized);
 
   if (!result) {
     // Try variations
     const variations = generateLocationVariations(location);
     for (const variant of variations) {
-      const variantResult = lookupLocationType(variant);
+      const variantResult = lookupLocationTypeSync(variant);
       if (variantResult) {
         return {
           scope: variantResult.type as LocationScope,
@@ -334,32 +400,26 @@ export function getDatabaseStats(): {
  * Checks if a name exists in the database
  */
 export function hasName(name: string): boolean {
-  if (!dataInitialized && !isSemanticDataAvailable()) {
+  const data = getSemanticDataSync();
+  if (data === null) {
     return false;
-  }
-
-  if (!dataInitialized) {
-    ensureDataLoaded();
   }
 
   const firstName = extractFirstName(name);
   if (firstName === null || firstName === "") return false;
 
-  return lookupGender(firstName) !== undefined;
+  return lookupGenderSync(firstName) !== undefined;
 }
 
 /**
  * Checks if a location exists in the database
  */
 export function hasLocation(location: string): boolean {
-  if (!dataInitialized && !isSemanticDataAvailable()) {
+  const data = getSemanticDataSync();
+  if (data === null) {
     return false;
   }
 
-  if (!dataInitialized) {
-    ensureDataLoaded();
-  }
-
   const normalized = normalizeLocationName(location);
-  return lookupLocationType(normalized) !== undefined;
+  return lookupLocationTypeSync(normalized) !== undefined;
 }

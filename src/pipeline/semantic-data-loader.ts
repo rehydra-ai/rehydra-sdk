@@ -1,6 +1,7 @@
 /**
  * Semantic Data Loader
  * Handles automatic downloading, caching, and parsing of semantic enrichment data.
+ * Browser-compatible using storage abstraction layer
  *
  * Data sources:
  * - nam_dict.txt: Name-gender mappings from gender-guesser (~40K names)
@@ -8,16 +9,13 @@
  * - countryInfo.txt: Country names and codes (~250 countries)
  * - admin1CodesASCII.txt: First-level admin divisions (~4K regions)
  *
- * Data is cached in the same location as NER models:
- * - macOS: ~/Library/Caches/bridge-anonymization/semantic-data/
- * - Linux: ~/.cache/bridge-anonymization/semantic-data/
- * - Windows: %LOCALAPPDATA%/bridge-anonymization/semantic-data/
+ * Data is cached using the storage abstraction layer:
+ * - Node.js: Platform-specific cache directories
+ * - Browser: IndexedDB
  */
 
-import * as fs from "fs";
-import * as fsPromises from "fs/promises";
-import * as path from "path";
-import * as os from "os";
+import { getStorageProvider, type StorageProvider } from "../utils/storage.js";
+import { join, basename } from "../utils/path.js";
 
 /**
  * Gender code mappings from nam_dict.txt format
@@ -126,46 +124,36 @@ interface SemanticData {
 // Global data store (lazily loaded)
 let semanticData: SemanticData | null = null;
 
+// Cached storage provider
+let storageProvider: StorageProvider | null = null;
+
+/**
+ * Gets the storage provider (lazily initialized)
+ */
+async function getStorage(): Promise<StorageProvider> {
+  if (storageProvider === null) {
+    storageProvider = await getStorageProvider();
+  }
+  return storageProvider;
+}
+
 // =============================================================================
 // Cache Directory Management
 // =============================================================================
 
 /**
  * Gets the cache directory for semantic data
- * Uses platform-specific cache location (same as NER models)
+ * Uses platform-specific cache location (or virtual path in browser)
  */
-export function getSemanticDataCacheDir(): string {
-  const homeDir = os.homedir();
-
-  switch (process.platform) {
-    case "darwin":
-      return path.join(
-        homeDir,
-        "Library",
-        "Caches",
-        "bridge-anonymization",
-        "semantic-data"
-      );
-    case "win32":
-      return path.join(
-        process.env["LOCALAPPDATA"] ?? path.join(homeDir, "AppData", "Local"),
-        "bridge-anonymization",
-        "semantic-data"
-      );
-    default:
-      // Linux and others - use XDG_CACHE_HOME or ~/.cache
-      return path.join(
-        process.env["XDG_CACHE_HOME"] ?? path.join(homeDir, ".cache"),
-        "bridge-anonymization",
-        "semantic-data"
-      );
-  }
+export async function getSemanticDataCacheDir(): Promise<string> {
+  const storage = await getStorage();
+  return storage.getCacheDir("semantic-data");
 }
 
 /**
  * Gets the path to the data directory (alias for backwards compatibility)
  */
-export function getDataDirectory(): string {
+export async function getDataDirectory(): Promise<string> {
   return getSemanticDataCacheDir();
 }
 
@@ -190,36 +178,42 @@ export interface SemanticDataFileInfo {
 }
 
 /**
+ * Base URL for semantic data files hosted on Hugging Face
+ */
+const HUGGINGFACE_BASE_URL =
+  "https://huggingface.co/datasets/tjruesch/bridge-anonymization-semantic/resolve/main";
+
+/**
  * Registry of semantic data files and their download URLs
  */
 export const SEMANTIC_DATA_FILES: SemanticDataFileInfo[] = [
   {
     filename: "nam_dict.txt",
-    url: "https://raw.githubusercontent.com/lead-ratings/gender-guesser/master/gender_guesser/data/nam_dict.txt",
+    url: `${HUGGINGFACE_BASE_URL}/nam_dict.txt`,
     required: true,
     description: "Name-gender mappings (~40K names)",
-    size: "~1.5 MB",
+    size: "~4.3 MB",
   },
   {
     filename: "cities15000.txt",
-    url: "https://download.geonames.org/export/dump/cities15000.zip",
+    url: `${HUGGINGFACE_BASE_URL}/cities15000.txt`,
     required: true,
     description: "GeoNames cities with population > 15,000",
-    size: "~2 MB (compressed)",
+    size: "~7.8 MB",
   },
   {
     filename: "countryInfo.txt",
-    url: "https://download.geonames.org/export/dump/countryInfo.txt",
+    url: `${HUGGINGFACE_BASE_URL}/countryInfo.txt`,
     required: true,
     description: "Country names and codes",
-    size: "~25 KB",
+    size: "~31 KB",
   },
   {
     filename: "admin1CodesASCII.txt",
-    url: "https://download.geonames.org/export/dump/admin1CodesASCII.txt",
+    url: `${HUGGINGFACE_BASE_URL}/admin1CodesASCII.txt`,
     required: false,
     description: "First-level admin divisions (states/regions)",
-    size: "~350 KB",
+    size: "~146 KB",
   },
 ];
 
@@ -241,13 +235,15 @@ export type SemanticDownloadProgressCallback = (progress: {
  * Checks if semantic data is already downloaded
  */
 export async function isSemanticDataDownloaded(): Promise<boolean> {
-  const dataDir = getSemanticDataCacheDir();
+  const storage = await getStorage();
+  const dataDir = await getSemanticDataCacheDir();
 
   try {
     // Check all required files
     for (const file of SEMANTIC_DATA_FILES) {
       if (file.required) {
-        await fsPromises.access(path.join(dataDir, file.filename));
+        const exists = await storage.exists(join(dataDir, file.filename));
+        if (!exists) return false;
       }
     }
     return true;
@@ -257,30 +253,21 @@ export async function isSemanticDataDownloaded(): Promise<boolean> {
 }
 
 /**
- * Checks if the semantic data files are available (synchronous version)
+ * Checks if the semantic data files are available
+ * Note: This is now async to work with browser storage
  */
-export function isSemanticDataAvailable(): boolean {
-  const dataDir = getSemanticDataCacheDir();
-  const requiredFiles = SEMANTIC_DATA_FILES.filter((f) => f.required);
-
-  return requiredFiles.every((file) => {
-    try {
-      fs.accessSync(path.join(dataDir, file.filename), fs.constants.R_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+export async function isSemanticDataAvailable(): Promise<boolean> {
+  return isSemanticDataDownloaded();
 }
 
 /**
- * Downloads a file from URL to local path with progress
+ * Downloads a file from URL and returns the data
  */
-async function downloadFile(
+async function downloadFileData(
   url: string,
-  destPath: string,
+  fileName: string,
   onProgress?: SemanticDownloadProgressCallback
-): Promise<void> {
+): Promise<Uint8Array> {
   const response = await fetch(url, {
     headers: {
       "User-Agent": "bridge-anonymization/1.0.0",
@@ -299,11 +286,6 @@ async function downloadFile(
   const totalBytes = response.headers.get("content-length");
   const total =
     totalBytes !== null && totalBytes !== "" ? parseInt(totalBytes, 10) : null;
-
-  // Ensure directory exists
-  await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
-
-  const fileName = path.basename(destPath);
 
   const reader = response.body?.getReader();
   if (reader === undefined) {
@@ -336,39 +318,31 @@ async function downloadFile(
     }
   }
 
-  // Write all chunks to file
-  const buffer = Buffer.concat(chunks);
-  await fsPromises.writeFile(destPath, buffer);
+  // Concatenate all chunks
+  const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return result;
 }
 
 /**
- * Extracts a zip file (for cities15000.zip)
+ * Downloads a file from URL to storage
  */
-async function extractZip(zipPath: string, destDir: string): Promise<void> {
-  // Use Node.js built-in zlib for basic extraction
-  // For zip files, we'll use a simple approach with the 'unzip' command
-  // or fall back to downloading the uncompressed version if available
+async function downloadFile(
+  url: string,
+  destPath: string,
+  onProgress?: SemanticDownloadProgressCallback
+): Promise<void> {
+  const storage = await getStorage();
+  const fileName = basename(destPath);
 
-  const { exec } = await import("child_process");
-  const { promisify } = await import("util");
-  const execAsync = promisify(exec);
-
-  try {
-    // Try using unzip command (available on most systems)
-    await execAsync(`unzip -o "${zipPath}" -d "${destDir}"`);
-  } catch {
-    // If unzip is not available, try using tar (some systems have it)
-    try {
-      await execAsync(`tar -xf "${zipPath}" -C "${destDir}"`);
-    } catch {
-      throw new Error(
-        "Could not extract zip file. Please install 'unzip' command or extract manually."
-      );
-    }
-  }
-
-  // Clean up zip file
-  await fsPromises.unlink(zipPath);
+  const data = await downloadFileData(url, fileName, onProgress);
+  await storage.writeFile(destPath, data);
 }
 
 /**
@@ -378,30 +352,22 @@ export async function downloadSemanticData(
   onProgress?: SemanticDownloadProgressCallback,
   onStatus?: (status: string) => void
 ): Promise<string> {
-  const dataDir = getSemanticDataCacheDir();
+  const storage = await getStorage();
+  const dataDir = await getSemanticDataCacheDir();
 
   // Create directory
-  await fsPromises.mkdir(dataDir, { recursive: true });
+  await storage.mkdir(dataDir);
 
   onStatus?.("Downloading semantic enrichment data...");
   onStatus?.(`Cache directory: ${dataDir}`);
 
   for (const file of SEMANTIC_DATA_FILES) {
-    const destPath = path.join(dataDir, file.filename);
-    const isZip = file.url.endsWith(".zip");
+    const destPath = join(dataDir, file.filename);
 
     onStatus?.(`Downloading ${file.description}...`);
 
     try {
-      if (isZip) {
-        // Download zip and extract
-        const zipPath = destPath + ".zip";
-        await downloadFile(file.url, zipPath, onProgress);
-        onStatus?.(`Extracting ${file.filename}...`);
-        await extractZip(zipPath, dataDir);
-      } else {
-        await downloadFile(file.url, destPath, onProgress);
-      }
+      await downloadFile(file.url, destPath, onProgress);
     } catch (e) {
       if (file.required) {
         throw new Error(
@@ -430,7 +396,7 @@ export async function ensureSemanticData(
 ): Promise<string> {
   const { autoDownload = true, onProgress, onStatus } = options;
 
-  const dataDir = getSemanticDataCacheDir();
+  const dataDir = await getSemanticDataCacheDir();
 
   // Check if already downloaded
   const isDownloaded = await isSemanticDataDownloaded();
@@ -458,8 +424,9 @@ export async function ensureSemanticData(
  * Clears cached semantic data
  */
 export async function clearSemanticDataCache(): Promise<void> {
-  const dataDir = getSemanticDataCacheDir();
-  await fsPromises.rm(dataDir, { recursive: true, force: true });
+  const storage = await getStorage();
+  const dataDir = await getSemanticDataCacheDir();
+  await storage.rm(dataDir, { recursive: true, force: true });
   // Also clear in-memory data
   clearSemanticData();
 }
@@ -467,14 +434,15 @@ export async function clearSemanticDataCache(): Promise<void> {
 /**
  * Gets info about semantic data files
  */
-export function getSemanticDataInfo(): {
+export async function getSemanticDataInfo(): Promise<{
   files: SemanticDataFileInfo[];
   cacheDir: string;
   totalSize: string;
-} {
+}> {
+  const cacheDir = await getSemanticDataCacheDir();
   return {
     files: SEMANTIC_DATA_FILES,
-    cacheDir: getSemanticDataCacheDir(),
+    cacheDir,
     totalSize: "~4 MB",
   };
 }
@@ -484,12 +452,10 @@ export function getSemanticDataInfo(): {
 // =============================================================================
 
 /**
- * Parses nam_dict.txt and extracts name-gender mappings
+ * Parses nam_dict.txt content and extracts name-gender mappings
  */
-function parseNameDict(filePath: string): Map<string, NameEntry> {
+function parseNameDictContent(content: string): Map<string, NameEntry> {
   const names = new Map<string, NameEntry>();
-
-  const content = fs.readFileSync(filePath, "latin1"); // File uses ISO-8859-1 encoding
   const lines = content.split("\n");
 
   for (const line of lines) {
@@ -550,13 +516,11 @@ function parseNameDict(filePath: string): Map<string, NameEntry> {
 }
 
 /**
- * Parses cities15000.txt and extracts city data
+ * Parses cities15000.txt content and extracts city data
  * When multiple cities have the same name, keeps the one with highest population
  */
-function parseCities(filePath: string): Map<string, CityEntry> {
+function parseCitiesContent(content: string): Map<string, CityEntry> {
   const cities = new Map<string, CityEntry>();
-
-  const content = fs.readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
 
   // Helper to add city only if population is higher than existing
@@ -615,42 +579,6 @@ function parseCities(filePath: string): Map<string, CityEntry> {
 }
 
 /**
- * Parses countryInfo.txt and extracts country data
- */
-function parseCountries(filePath: string): Map<string, string> {
-  const countries = new Map<string, string>();
-
-  const content = fs.readFileSync(filePath, "utf-8");
-  const lines = content.split("\n");
-
-  for (const line of lines) {
-    // Skip comments and empty lines
-    if (line.startsWith("#") || line.trim() === "") continue;
-
-    const parts = line.split("\t");
-    if (parts.length < 5) continue;
-
-    const code = parts[0];
-    const name = parts[4];
-
-    if (code === undefined || code === "" || name === undefined || name === "")
-      continue;
-
-    // Add country name -> code mapping
-    countries.set(name.toLowerCase(), code);
-
-    // Add common variations
-    // E.g., "United States" also as "USA", "US", "America"
-    const variations = getCountryVariations(name, code);
-    for (const variation of variations) {
-      countries.set(variation.toLowerCase(), code);
-    }
-  }
-
-  return countries;
-}
-
-/**
  * Generates common country name variations
  */
 function getCountryVariations(name: string, code: string): string[] {
@@ -684,52 +612,75 @@ function getCountryVariations(name: string, code: string): string[] {
 }
 
 /**
- * Parses admin1CodesASCII.txt and extracts region data
+ * Parses countryInfo.txt content and extracts country data
  */
-function parseRegions(filePath: string): Map<string, RegionEntry> {
-  const regions = new Map<string, RegionEntry>();
+function parseCountriesContent(content: string): Map<string, string> {
+  const countries = new Map<string, string>();
+  const lines = content.split("\n");
 
-  try {
-    const content = fs.readFileSync(filePath, "utf-8");
-    const lines = content.split("\n");
+  for (const line of lines) {
+    // Skip comments and empty lines
+    if (line.startsWith("#") || line.trim() === "") continue;
 
-    for (const line of lines) {
-      if (line.trim() === "") continue;
+    const parts = line.split("\t");
+    if (parts.length < 5) continue;
 
-      const parts = line.split("\t");
-      if (parts.length < 2) continue;
+    const code = parts[0];
+    const name = parts[4];
 
-      const code = parts[0]; // Format: "US.CA"
-      const name = parts[1];
-      const asciiName = parts[2];
+    if (code === undefined || code === "" || name === undefined || name === "")
+      continue;
 
-      if (
-        code === undefined ||
-        code === "" ||
-        name === undefined ||
-        name === ""
-      )
-        continue;
+    // Add country name -> code mapping
+    countries.set(name.toLowerCase(), code);
 
-      const [countryCode] = code.split(".");
-      if (countryCode === undefined || countryCode === "") continue;
-
-      const regionEntry: RegionEntry = { country: countryCode, name };
-
-      // Add region name
-      regions.set(name.toLowerCase(), regionEntry);
-
-      // Add ASCII name if different
-      if (
-        asciiName !== undefined &&
-        asciiName !== "" &&
-        asciiName.toLowerCase() !== name.toLowerCase()
-      ) {
-        regions.set(asciiName.toLowerCase(), regionEntry);
-      }
+    // Add common variations
+    // E.g., "United States" also as "USA", "US", "America"
+    const variations = getCountryVariations(name, code);
+    for (const variation of variations) {
+      countries.set(variation.toLowerCase(), code);
     }
-  } catch {
-    // admin1 file is optional
+  }
+
+  return countries;
+}
+
+/**
+ * Parses admin1CodesASCII.txt content and extracts region data
+ */
+function parseRegionsContent(content: string): Map<string, RegionEntry> {
+  const regions = new Map<string, RegionEntry>();
+  const lines = content.split("\n");
+
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+
+    const parts = line.split("\t");
+    if (parts.length < 2) continue;
+
+    const code = parts[0]; // Format: "US.CA"
+    const name = parts[1];
+    const asciiName = parts[2];
+
+    if (code === undefined || code === "" || name === undefined || name === "")
+      continue;
+
+    const [countryCode] = code.split(".");
+    if (countryCode === undefined || countryCode === "") continue;
+
+    const regionEntry: RegionEntry = { country: countryCode, name };
+
+    // Add region name
+    regions.set(name.toLowerCase(), regionEntry);
+
+    // Add ASCII name if different
+    if (
+      asciiName !== undefined &&
+      asciiName !== "" &&
+      asciiName.toLowerCase() !== name.toLowerCase()
+    ) {
+      regions.set(asciiName.toLowerCase(), regionEntry);
+    }
   }
 
   return regions;
@@ -753,31 +704,56 @@ export async function initializeSemanticData(
   await ensureSemanticData(options);
 
   // Load the data
-  loadSemanticData();
+  await loadSemanticData();
 }
 
 /**
  * Loads semantic data from cached files
  * @throws Error if required data files are not available
  */
-export function loadSemanticData(): SemanticData {
+export async function loadSemanticData(): Promise<SemanticData> {
   if (semanticData !== null && semanticData.loaded === true) {
     return semanticData;
   }
 
-  const dataDir = getSemanticDataCacheDir();
+  const storage = await getStorage();
+  const dataDir = await getSemanticDataCacheDir();
 
-  if (!isSemanticDataAvailable()) {
+  const isAvailable = await isSemanticDataAvailable();
+  if (!isAvailable) {
     throw new Error(
       `Semantic data files not found in ${dataDir}. ` +
         `Use ensureSemanticData() or createAnonymizer({ semantic: { enabled: true, autoDownload: true } }) to download.`
     );
   }
 
-  const names = parseNameDict(path.join(dataDir, "nam_dict.txt"));
-  const cities = parseCities(path.join(dataDir, "cities15000.txt"));
-  const countries = parseCountries(path.join(dataDir, "countryInfo.txt"));
-  const regions = parseRegions(path.join(dataDir, "admin1CodesASCII.txt"));
+  // Load and parse files
+  const nameDictContent = await storage.readTextFile(
+    join(dataDir, "nam_dict.txt"),
+    "latin1" // File uses ISO-8859-1 encoding
+  );
+  const names = parseNameDictContent(nameDictContent);
+
+  const citiesContent = await storage.readTextFile(
+    join(dataDir, "cities15000.txt")
+  );
+  const cities = parseCitiesContent(citiesContent);
+
+  const countriesContent = await storage.readTextFile(
+    join(dataDir, "countryInfo.txt")
+  );
+  const countries = parseCountriesContent(countriesContent);
+
+  // admin1 file is optional
+  let regions = new Map<string, RegionEntry>();
+  try {
+    const regionsContent = await storage.readTextFile(
+      join(dataDir, "admin1CodesASCII.txt")
+    );
+    regions = parseRegionsContent(regionsContent);
+  } catch {
+    // admin1 file is optional
+  }
 
   semanticData = {
     names,
@@ -792,10 +768,23 @@ export function loadSemanticData(): SemanticData {
 
 /**
  * Gets the loaded semantic data (loads if not already loaded)
+ * Note: This is now async to work with browser storage
  */
-export function getSemanticData(): SemanticData {
+export async function getSemanticData(): Promise<SemanticData> {
   if (semanticData === null || semanticData.loaded !== true) {
     return loadSemanticData();
+  }
+  return semanticData;
+}
+
+/**
+ * Gets the loaded semantic data synchronously
+ * Returns null if data is not yet loaded
+ * Use this for performance-critical code paths after initial loading
+ */
+export function getSemanticDataSync(): SemanticData | null {
+  if (semanticData === null || semanticData.loaded !== true) {
+    return null;
   }
   return semanticData;
 }
@@ -810,11 +799,11 @@ export function clearSemanticData(): void {
 /**
  * Looks up gender for a name
  */
-export function lookupGender(
+export async function lookupGender(
   name: string,
   locale?: string
-): string | undefined {
-  const data = getSemanticData();
+): Promise<string | undefined> {
+  const data = await getSemanticData();
   const entry = data.names.get(name.toLowerCase());
 
   if (entry === undefined) return undefined;
@@ -841,10 +830,12 @@ const MAJOR_CITY_POPULATION = 500000;
  * Looks up location type (city, country, or region)
  * Priority: country > major city (pop > 500K) > region > other cities
  */
-export function lookupLocationType(
+export async function lookupLocationType(
   location: string
-): { type: "city" | "country" | "region"; countryCode?: string } | undefined {
-  const data = getSemanticData();
+): Promise<
+  { type: "city" | "country" | "region"; countryCode?: string } | undefined
+> {
+  const data = await getSemanticData();
   const normalized = location.toLowerCase().trim();
 
   // Check countries FIRST (to avoid "USA" being matched as a city)
