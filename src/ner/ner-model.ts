@@ -4,19 +4,20 @@
  * Supports both onnxruntime-node and onnxruntime-web
  */
 
-import { loadRuntime, type OrtRuntime } from './onnx-runtime.js';
-import { SpanMatch, AnonymizationPolicy } from '../types/index.js';
+import { loadRuntime, type OrtRuntime } from "./onnx-runtime.js";
+import { SpanMatch, AnonymizationPolicy } from "../types/index.js";
 import {
   WordPieceTokenizer,
   loadVocabFromFile,
   type TokenizationResult,
-} from './tokenizer.js';
+} from "./tokenizer.js";
 import {
   decodeBIOTags,
   convertToSpanMatches,
   cleanupSpanBoundaries,
   mergeAdjacentSpans,
-} from './bio-decoder.js';
+} from "./bio-decoder.js";
+import { getStorageProvider, isBrowser } from "../utils/storage.js";
 
 /**
  * NER Model configuration
@@ -52,15 +53,15 @@ export interface NERPrediction {
  * Default label map for common NER models (CoNLL-style)
  */
 export const DEFAULT_LABEL_MAP = [
-  'O',
-  'B-PER',
-  'I-PER',
-  'B-ORG',
-  'I-ORG',
-  'B-LOC',
-  'I-LOC',
-  'B-MISC',
-  'I-MISC',
+  "O",
+  "B-PER",
+  "I-PER",
+  "B-ORG",
+  "I-ORG",
+  "B-LOC",
+  "I-LOC",
+  "B-MISC",
+  "I-MISC",
 ];
 
 /**
@@ -87,9 +88,21 @@ export class NERModel {
     this.ort = await loadRuntime();
 
     // Load ONNX model
-    this.session = await this.ort.InferenceSession.create(this.config.modelPath);
+    // In browsers, we need to load the model as ArrayBuffer since file paths don't work
+    // onnxruntime-web accepts ArrayBuffer/Uint8Array, while onnxruntime-node accepts file paths
+    if (isBrowser()) {
+      const storage = await getStorageProvider();
+      const modelData = await storage.readFile(this.config.modelPath);
+      // onnxruntime-web accepts Uint8Array directly
+      this.session = await this.ort.InferenceSession.create(modelData);
+    } else {
+      // In Node.js, we can use the file path directly
+      this.session = await this.ort.InferenceSession.create(
+        this.config.modelPath
+      );
+    }
 
-    // Load tokenizer vocabulary
+    // Load tokenizer vocabulary (already uses storage abstraction internally)
     const vocab = await loadVocabFromFile(this.config.vocabPath);
     this.tokenizer = new WordPieceTokenizer(vocab, {
       maxLength: this.config.maxLength,
@@ -109,7 +122,7 @@ export class NERModel {
     const startTime = performance.now();
 
     if (!this.isLoaded || this.session === null || this.tokenizer === null) {
-      throw new Error('Model not loaded. Call load() first.');
+      throw new Error("Model not loaded. Call load() first.");
     }
 
     // Tokenize input
@@ -138,7 +151,8 @@ export class NERModel {
     if (policy !== undefined) {
       spans = spans.filter(
         (span) =>
-          policy.enabledTypes.has(span.type) && policy.nerEnabledTypes.has(span.type)
+          policy.enabledTypes.has(span.type) &&
+          policy.nerEnabledTypes.has(span.type)
       );
     }
 
@@ -158,32 +172,34 @@ export class NERModel {
     tokenization: TokenizationResult
   ): Promise<{ labels: string[]; confidences: number[] }> {
     if (this.session === null || this.ort === null) {
-      throw new Error('Session not initialized');
+      throw new Error("Session not initialized");
     }
 
     const session = this.session as {
       inputNames: readonly string[];
       outputNames: readonly string[];
-      run(feeds: Record<string, unknown>): Promise<Record<string, { data: Float32Array }>>;
+      run(
+        feeds: Record<string, unknown>
+      ): Promise<Record<string, { data: Float32Array }>>;
     };
 
     const seqLength = tokenization.inputIds.length;
 
     // Create tensors
     const inputIdsTensor = new this.ort.Tensor(
-      'int64',
+      "int64",
       BigInt64Array.from(tokenization.inputIds.map(BigInt)),
       [1, seqLength]
     );
 
     const attentionMaskTensor = new this.ort.Tensor(
-      'int64',
+      "int64",
       BigInt64Array.from(tokenization.attentionMask.map(BigInt)),
       [1, seqLength]
     );
 
     const tokenTypeIdsTensor = new this.ort.Tensor(
-      'int64',
+      "int64",
       BigInt64Array.from(tokenization.tokenTypeIds.map(BigInt)),
       [1, seqLength]
     );
@@ -196,8 +212,8 @@ export class NERModel {
 
     // Some models also need token_type_ids
     const inputNames = session.inputNames;
-    if (inputNames.includes('token_type_ids')) {
-      feeds['token_type_ids'] = tokenTypeIdsTensor;
+    if (inputNames.includes("token_type_ids")) {
+      feeds["token_type_ids"] = tokenTypeIdsTensor;
     }
 
     const results = await session.run(feeds);
@@ -205,12 +221,12 @@ export class NERModel {
     // Get logits output
     const outputName = session.outputNames[0];
     if (outputName === undefined) {
-      throw new Error('No output from model');
+      throw new Error("No output from model");
     }
 
     const logits = results[outputName];
     if (logits === undefined) {
-      throw new Error('Logits output not found');
+      throw new Error("Logits output not found");
     }
 
     // Process logits to get labels and confidences
@@ -250,7 +266,7 @@ export class NERModel {
         }
       }
 
-      labels.push(this.config.labelMap[maxIdx] ?? 'O');
+      labels.push(this.config.labelMap[maxIdx] ?? "O");
       confidences.push(maxProb);
     }
 
@@ -314,14 +330,16 @@ function softmax(logits: number[]): number[] {
 /**
  * Creates a NER model instance with configuration
  */
-export function createNERModel(config: Partial<NERModelConfig> & { modelPath: string; vocabPath: string }): NERModel {
+export function createNERModel(
+  config: Partial<NERModelConfig> & { modelPath: string; vocabPath: string }
+): NERModel {
   const fullConfig: NERModelConfig = {
     modelPath: config.modelPath,
     vocabPath: config.vocabPath,
     labelMap: config.labelMap ?? DEFAULT_LABEL_MAP,
     maxLength: config.maxLength ?? 512,
     doLowerCase: config.doLowerCase ?? false, // XLM-RoBERTa is cased
-    modelVersion: config.modelVersion ?? '1.0.0',
+    modelVersion: config.modelVersion ?? "1.0.0",
   };
 
   return new NERModel(fullConfig);
@@ -332,14 +350,17 @@ export function createNERModel(config: Partial<NERModelConfig> & { modelPath: st
  * Returns empty results - useful for regex-only mode
  */
 export class NERModelStub {
-  readonly version = 'stub-1.0.0';
+  readonly version = "stub-1.0.0";
   readonly loaded = true;
 
   async load(): Promise<void> {
     // No-op
   }
 
-  predict(_text: string, _policy?: AnonymizationPolicy): Promise<NERPrediction> {
+  predict(
+    _text: string,
+    _policy?: AnonymizationPolicy
+  ): Promise<NERPrediction> {
     return Promise.resolve({
       spans: [],
       processingTimeMs: 0,
@@ -370,4 +391,3 @@ export interface INERModel {
   predict(text: string, policy?: AnonymizationPolicy): Promise<NERPrediction>;
   dispose(): Promise<void>;
 }
-

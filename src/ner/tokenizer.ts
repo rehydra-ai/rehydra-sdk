@@ -322,13 +322,26 @@ export class WordPieceTokenizer {
 
 /**
  * Loads vocabulary from a file (supports tokenizer.json and vocab.txt)
+ * Uses storage abstraction for browser compatibility
  */
 export async function loadVocabFromFile(filePath: string): Promise<Map<string, number>> {
-  const fs = await import('fs/promises');
-  const content = await fs.readFile(filePath, 'utf-8');
+  const { getStorageProvider } = await import('../utils/storage.js');
+  const storage = await getStorageProvider();
+  const content = await storage.readTextFile(filePath);
   
   // Detect format
   if (filePath.endsWith('.json') || content.trim().startsWith('{')) {
+    return parseHFTokenizerJson(content);
+  } else {
+    return parseVocab(content);
+  }
+}
+
+/**
+ * Loads vocabulary from content string (for when content is already available)
+ */
+export function loadVocabFromContent(content: string, format: 'json' | 'txt' = 'json'): Map<string, number> {
+  if (format === 'json' || content.trim().startsWith('{')) {
     return parseHFTokenizerJson(content);
   } else {
     return parseVocab(content);
