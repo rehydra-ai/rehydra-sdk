@@ -6,3 +6,5 @@
 export * from "./luhn.js";
 export * from "./iban-checksum.js";
 export * from "./offsets.js";
+export * from "./path.js";
+export * from "./storage.js";
