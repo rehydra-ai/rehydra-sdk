@@ -8,8 +8,9 @@ import type {
   AnonymizationPolicy,
 } from "../types/index.js";
 import type { KeyProvider } from "../crypto/index.js";
-import { decryptPIIMap } from "../crypto/index.js";
+import { decryptPIIMap, encryptPIIMap } from "../crypto/index.js";
 import { rehydrate as rehydrateText } from "../pipeline/tagger.js";
+import type { RawPIIMap } from "../pipeline/tagger.js";
 import type {
   AnonymizerSession,
   PIIStorageProvider,
@@ -50,10 +51,49 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     // Call the parent anonymizer
     const result = await this.anonymizer.anonymize(text, locale, policy);
 
-    // Auto-save to storage
-    await this.storage.save(this.sessionId, result.piiMap, {
-      createdAt: Date.now(),
-      entityCounts: result.stats.countsByType,
+    // Get the encryption key
+    const key = await this.keyProvider.getKey();
+
+    // Decrypt the new PII map
+    const newPiiMap = await decryptPIIMap(result.piiMap, key);
+
+    // Load and merge with existing PII map if any
+    const existing = await this.storage.load(this.sessionId);
+    let mergedPiiMap: RawPIIMap;
+    let mergedEntityCounts: Record<string, number>;
+    let createdAt: number;
+
+    if (existing !== null) {
+      // Decrypt existing PII map
+      const existingPiiMap = await decryptPIIMap(existing.piiMap, key);
+
+      // Merge maps: start with existing, add new entries
+      mergedPiiMap = new Map(existingPiiMap);
+      for (const [k, v] of newPiiMap) {
+        mergedPiiMap.set(k, v);
+      }
+
+      // Merge entity counts
+      mergedEntityCounts = { ...existing.metadata.entityCounts };
+      for (const [type, count] of Object.entries(result.stats.countsByType)) {
+        mergedEntityCounts[type] = (mergedEntityCounts[type] ?? 0) + count;
+      }
+
+      // Preserve original creation time
+      createdAt = existing.metadata.createdAt;
+    } else {
+      mergedPiiMap = newPiiMap;
+      mergedEntityCounts = result.stats.countsByType;
+      createdAt = Date.now();
+    }
+
+    // Re-encrypt the merged PII map
+    const encryptedMergedMap = await encryptPIIMap(mergedPiiMap, key);
+
+    // Save the merged PII map to storage
+    await this.storage.save(this.sessionId, encryptedMergedMap, {
+      createdAt,
+      entityCounts: mergedEntityCounts,
       modelVersion: result.stats.modelVersion,
     });
 
@@ -90,4 +130,3 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     return this.storage.exists(this.sessionId);
   }
 }
-

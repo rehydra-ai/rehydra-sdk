@@ -80,7 +80,10 @@ describe("AnonymizerSession", () => {
       // Verify it was saved to storage
       const stored = await storage.load("test-session");
       expect(stored).not.toBeNull();
-      expect(stored!.piiMap.ciphertext).toBe(result.piiMap.ciphertext);
+      // Note: ciphertext won't match exactly because the session re-encrypts after merging,
+      // but the decrypted content should be the same
+      expect(stored!.piiMap.iv).toBeDefined();
+      expect(stored!.piiMap.authTag).toBeDefined();
     });
 
     it("should save metadata with entity counts", async () => {
@@ -230,25 +233,72 @@ describe("AnonymizerSession", () => {
     });
   });
 
-  describe("overwriting existing session", () => {
-    it("should overwrite previous PII map when anonymizing again", async () => {
-      const session = anonymizer.session("overwrite-test");
+  describe("merging PII maps across multiple anonymize calls", () => {
+    it("should merge PII maps with different entity types", async () => {
+      const session = anonymizer.session("merge-test");
+
+      // First anonymization with email
+      const result1 = await session.anonymize("Contact: test@example.com");
+
+      // Second anonymization with IP (different entity type)
+      const result2 = await session.anonymize("Server: 192.168.1.1");
+
+      // Both should be rehydratable using the merged stored map
+      const rehydrated1 = await session.rehydrate(result1.anonymizedText);
+      const rehydrated2 = await session.rehydrate(result2.anonymizedText);
+
+      expect(rehydrated1).toBe("Contact: test@example.com");
+      expect(rehydrated2).toBe("Server: 192.168.1.1");
+    });
+
+    it("should preserve PII when follow-up message has no new PII", async () => {
+      const session = anonymizer.session("preserve-test");
+
+      // First message - detects email
+      const result1 = await session.anonymize("Contact me at test@example.com");
+
+      // Second message - no PII (like "Translate to Italian")
+      await session.anonymize("Translate to Italian");
+
+      // First message's PII should still be rehydratable
+      const rehydrated = await session.rehydrate(result1.anonymizedText);
+      expect(rehydrated).toBe("Contact me at test@example.com");
+    });
+
+    it("should accumulate entity counts across multiple calls", async () => {
+      const session = anonymizer.session("counts-test");
+
+      // First call with email
+      await session.anonymize("first@example.com");
+      const stored1 = await session.load();
+      const emailCount1 = stored1!.metadata.entityCounts["EMAIL"] ?? 0;
+
+      // Second call with another email
+      await session.anonymize("second@example.com");
+      const stored2 = await session.load();
+      const emailCount2 = stored2!.metadata.entityCounts["EMAIL"] ?? 0;
+
+      // Email count should have increased
+      expect(emailCount2).toBe(emailCount1 + 1);
+    });
+
+    it("should preserve original createdAt timestamp", async () => {
+      const session = anonymizer.session("timestamp-test");
 
       // First anonymization
       await session.anonymize("first@example.com");
       const stored1 = await session.load();
+      const originalCreatedAt = stored1!.metadata.createdAt;
 
-      // Second anonymization (overwrites)
+      // Wait a bit to ensure different timestamp
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Second anonymization
       await session.anonymize("second@example.com");
       const stored2 = await session.load();
 
-      // Should have different ciphertexts
-      expect(stored1!.piiMap.ciphertext).not.toBe(stored2!.piiMap.ciphertext);
-
-      // Rehydration should use the latest
-      const result = await session.anonymize("third@example.com");
-      const rehydrated = await session.rehydrate(result.anonymizedText);
-      expect(rehydrated).toBe("third@example.com");
+      // createdAt should be preserved, updatedAt should be different
+      expect(stored2!.metadata.createdAt).toBe(originalCreatedAt);
     });
   });
 });
