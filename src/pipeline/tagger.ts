@@ -143,12 +143,64 @@ export function createPIIMapKey(type: PIIType, id: number): string {
 }
 
 /**
+ * Parses a PII map key to extract type and id
+ * @param key - Key in format "TYPE_ID" (e.g., "PERSON_1")
+ * @returns Parsed type and id, or null if invalid
+ */
+function parsePIIMapKey(key: string): { type: PIIType; id: number } | null {
+  const match = key.match(/^([A-Z_]+)_(\d+)$/);
+  if (!match || match[1] === undefined || match[2] === undefined) {
+    return null;
+  }
+  const type = match[1] as PIIType;
+  const id = parseInt(match[2], 10);
+  if (!Object.values(PIIType).includes(type)) {
+    return null;
+  }
+  return { type, id };
+}
+
+/**
+ * Builds a reverse lookup and max ID from an existing PII map
+ * @param existingPiiMap - Existing PII map (key → value)
+ * @returns Reverse lookup (type:value → id) and global max ID
+ */
+function buildExistingEntityLookup(existingPiiMap: RawPIIMap): {
+  reverseLookup: Map<string, number>;
+  maxId: number;
+} {
+  const reverseLookup = new Map<string, number>(); // "TYPE:value" → id
+  let maxId = 0;
+
+  for (const [key, value] of existingPiiMap) {
+    const parsed = parsePIIMapKey(key);
+    if (parsed !== null) {
+      // Build reverse lookup: "PERSON:Tom" → 1
+      const lookupKey = `${parsed.type}:${value}`;
+      reverseLookup.set(lookupKey, parsed.id);
+
+      // Track global max ID
+      if (parsed.id > maxId) {
+        maxId = parsed.id;
+      }
+    }
+  }
+
+  return { reverseLookup, maxId };
+}
+
+/**
  * Tags PII spans in text and builds the PII map
+ * @param text - Input text to tag
+ * @param matches - Detected PII spans
+ * @param policy - Anonymization policy
+ * @param existingPiiMap - Optional existing PII map for session-level ID reuse
  */
 export function tagEntities(
   text: string,
   matches: SpanMatch[],
-  policy: AnonymizationPolicy
+  policy: AnonymizationPolicy,
+  existingPiiMap?: RawPIIMap
 ): TaggingResult {
   if (matches.length === 0) {
     return {
@@ -161,24 +213,38 @@ export function tagEntities(
   // Sort by start position ascending for ID assignment
   const sortedAscending = sortSpansByPosition(matches);
 
+  // Build lookup from existing PII map (if provided)
+  const { reverseLookup, maxId } = existingPiiMap
+    ? buildExistingEntityLookup(existingPiiMap)
+    : { reverseLookup: new Map<string, number>(), maxId: 0 };
+
   // Assign IDs
   const entitiesWithIds: Array<SpanMatch & { id: number }> = [];
-  let nextId = 1;
+  
+  // Global ID counter (starts from max existing + 1)
+  let nextId = maxId + 1;
 
-  // Track seen text for ID reuse (if enabled)
-  const seenText = new Map<string, number>(); // text -> id
+  // Track seen text for ID reuse within this call (if enabled)
+  const seenText = new Map<string, number>(); // "type:text" -> id
 
   for (const match of sortedAscending) {
     let id: number;
+    const lookupKey = `${match.type}:${match.text}`;
 
-    if (policy.reuseIdsForRepeatedPII) {
-      const key = `${match.type}:${match.text}`;
-      const existingId = seenText.get(key);
-      if (existingId !== undefined) {
-        id = existingId;
+    // First, check if this value exists in the existing PII map (session-level reuse)
+    const existingId = reverseLookup.get(lookupKey);
+    if (existingId !== undefined) {
+      id = existingId;
+      // Also add to seenText so repeated occurrences in this call use the same ID
+      seenText.set(lookupKey, id);
+    } else if (policy.reuseIdsForRepeatedPII) {
+      // Check if we've seen this value earlier in this call
+      const seenId = seenText.get(lookupKey);
+      if (seenId !== undefined) {
+        id = seenId;
       } else {
         id = nextId++;
-        seenText.set(key, id);
+        seenText.set(lookupKey, id);
       }
     } else {
       id = nextId++;

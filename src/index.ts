@@ -209,7 +209,7 @@ import {
 } from "./ner/model-manager.js";
 import { prenormalize } from "./pipeline/prenormalize.js";
 import { resolveEntities } from "./pipeline/resolver.js";
-import { tagEntities, countEntitiesByType } from "./pipeline/tagger.js";
+import { tagEntities, countEntitiesByType, type RawPIIMap } from "./pipeline/tagger.js";
 import { validateOutput } from "./pipeline/validator.js";
 import { enrichSemantics } from "./pipeline/semantic-enricher.js";
 import {
@@ -472,12 +472,14 @@ export class Anonymizer {
    * @param text - Input text to anonymize
    * @param locale - Optional locale hint (e.g., 'de-DE', 'en-US')
    * @param policy - Optional policy override
+   * @param existingPiiMap - Optional existing PII map for session-level ID reuse
    * @returns Anonymization result with anonymized text and encrypted PII map
    */
   async anonymize(
     text: string,
     locale?: string,
-    policy?: Partial<AnonymizationPolicy>
+    policy?: Partial<AnonymizationPolicy>,
+    existingPiiMap?: RawPIIMap
   ): Promise<AnonymizationResult> {
     if (!this.initialized) {
       await this.initialize();
@@ -539,7 +541,8 @@ export class Anonymizer {
     const { anonymizedText, entities, piiMap } = tagEntities(
       normalizedText,
       enrichedMatches,
-      effectivePolicy
+      effectivePolicy,
+      existingPiiMap
     );
 
     // Step 6: Validate output

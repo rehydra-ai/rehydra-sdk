@@ -301,5 +301,133 @@ describe("AnonymizerSession", () => {
       expect(stored2!.metadata.createdAt).toBe(originalCreatedAt);
     });
   });
+
+  describe("cross-call entity ID reuse", () => {
+    it("should reuse ID when same entity value appears in later call", async () => {
+      const session = anonymizer.session("id-reuse-test");
+
+      // First call with email
+      const result1 = await session.anonymize("Contact: test@example.com");
+
+      // Second call with SAME email
+      const result2 = await session.anonymize("Email again: test@example.com");
+
+      // Both should produce the same tag (EMAIL_1)
+      expect(result1.anonymizedText).toContain('id="1"');
+      expect(result2.anonymizedText).toContain('id="1"');
+
+      // Both should rehydrate correctly
+      const rehydrated1 = await session.rehydrate(result1.anonymizedText);
+      const rehydrated2 = await session.rehydrate(result2.anonymizedText);
+
+      expect(rehydrated1).toBe("Contact: test@example.com");
+      expect(rehydrated2).toBe("Email again: test@example.com");
+    });
+
+    it("should assign different IDs for different entities of same type", async () => {
+      const session = anonymizer.session("different-ids-test");
+
+      // First call with first email
+      const result1 = await session.anonymize("first@example.com");
+      expect(result1.anonymizedText).toContain('id="1"');
+
+      // Second call with DIFFERENT email
+      const result2 = await session.anonymize("second@example.com");
+      expect(result2.anonymizedText).toContain('id="2"');
+
+      // Both should rehydrate correctly
+      const rehydrated1 = await session.rehydrate(result1.anonymizedText);
+      const rehydrated2 = await session.rehydrate(result2.anonymizedText);
+
+      expect(rehydrated1).toBe("first@example.com");
+      expect(rehydrated2).toBe("second@example.com");
+    });
+
+    it("should start new IDs from max existing ID + 1", async () => {
+      const session = anonymizer.session("max-id-test");
+
+      // First call with two emails
+      const result1 = await session.anonymize(
+        "Contact: first@example.com and second@example.com"
+      );
+      // Should have EMAIL_1 and EMAIL_2
+      expect(result1.anonymizedText).toContain('id="1"');
+      expect(result1.anonymizedText).toContain('id="2"');
+
+      // Second call with new email
+      const result2 = await session.anonymize("third@example.com");
+      // Should be EMAIL_3 (continuing from max)
+      expect(result2.anonymizedText).toContain('id="3"');
+
+      // All should rehydrate correctly
+      const rehydrated1 = await session.rehydrate(result1.anonymizedText);
+      const rehydrated2 = await session.rehydrate(result2.anonymizedText);
+
+      expect(rehydrated1).toBe(
+        "Contact: first@example.com and second@example.com"
+      );
+      expect(rehydrated2).toBe("third@example.com");
+    });
+
+    it("should handle mix of reused and new entities", async () => {
+      const session = anonymizer.session("mix-test");
+
+      // First call
+      const result1 = await session.anonymize("first@example.com");
+      expect(result1.anonymizedText).toContain('id="1"');
+
+      // Second call with same entity and new entity
+      const result2 = await session.anonymize(
+        "first@example.com and second@example.com"
+      );
+
+      // first@ should reuse id="1", second@ should get id="2"
+      // Both IDs should be present (1 reused, 2 new)
+      expect(result2.anonymizedText).toContain('id="1"');
+      expect(result2.anonymizedText).toContain('id="2"');
+
+      // Rehydration should restore both correctly
+      const rehydrated1 = await session.rehydrate(result1.anonymizedText);
+      const rehydrated2 = await session.rehydrate(result2.anonymizedText);
+
+      expect(rehydrated1).toBe("first@example.com");
+      expect(rehydrated2).toBe("first@example.com and second@example.com");
+    });
+
+    it("should handle complex conversation scenario", async () => {
+      const session = anonymizer.session("conversation-test");
+
+      // Message 1: User introduces themselves
+      const msg1 = await session.anonymize(
+        "Contact me at user@example.com or call +49 30 12345678"
+      );
+
+      // Message 2: No PII
+      await session.anonymize("Please translate this to German");
+
+      // Message 3: Reference existing PII and add new
+      const msg3 = await session.anonymize(
+        "Send to user@example.com and also admin@example.com"
+      );
+
+      // Message 4: Only references existing PII
+      const msg4 = await session.anonymize(
+        "Reminder: call +49 30 12345678 tomorrow"
+      );
+
+      // All messages should rehydrate correctly
+      const rehydrated1 = await session.rehydrate(msg1.anonymizedText);
+      const rehydrated3 = await session.rehydrate(msg3.anonymizedText);
+      const rehydrated4 = await session.rehydrate(msg4.anonymizedText);
+
+      expect(rehydrated1).toBe(
+        "Contact me at user@example.com or call +49 30 12345678"
+      );
+      expect(rehydrated3).toBe(
+        "Send to user@example.com and also admin@example.com"
+      );
+      expect(rehydrated4).toBe("Reminder: call +49 30 12345678 tomorrow");
+    });
+  });
 });
 

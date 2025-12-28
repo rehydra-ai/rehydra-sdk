@@ -24,7 +24,8 @@ export interface IAnonymizer {
   anonymize(
     text: string,
     locale?: string,
-    policy?: Partial<AnonymizationPolicy>
+    policy?: Partial<AnonymizationPolicy>,
+    existingPiiMap?: RawPIIMap
   ): Promise<AnonymizationResult>;
 }
 
@@ -48,43 +49,48 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     locale?: string,
     policy?: Partial<AnonymizationPolicy>
   ): Promise<AnonymizationResult> {
-    // Call the parent anonymizer
-    const result = await this.anonymizer.anonymize(text, locale, policy);
-
     // Get the encryption key
     const key = await this.keyProvider.getKey();
+
+    // Load existing PII map for ID reuse (before calling anonymizer)
+    const existing = await this.storage.load(this.sessionId);
+    let existingPiiMap: RawPIIMap | undefined;
+    let createdAt: number;
+    let existingEntityCounts: Record<string, number>;
+
+    if (existing !== null) {
+      existingPiiMap = await decryptPIIMap(existing.piiMap, key);
+      createdAt = existing.metadata.createdAt;
+      existingEntityCounts = existing.metadata.entityCounts;
+    } else {
+      existingPiiMap = undefined;
+      createdAt = Date.now();
+      existingEntityCounts = {};
+    }
+
+    // Call the parent anonymizer with existing PII map for ID reuse
+    const result = await this.anonymizer.anonymize(
+      text,
+      locale,
+      policy,
+      existingPiiMap
+    );
 
     // Decrypt the new PII map
     const newPiiMap = await decryptPIIMap(result.piiMap, key);
 
-    // Load and merge with existing PII map if any
-    const existing = await this.storage.load(this.sessionId);
-    let mergedPiiMap: RawPIIMap;
-    let mergedEntityCounts: Record<string, number>;
-    let createdAt: number;
+    // Merge maps: start with existing (if any), add new entries
+    const mergedPiiMap: RawPIIMap = existingPiiMap
+      ? new Map(existingPiiMap)
+      : new Map();
+    for (const [k, v] of newPiiMap) {
+      mergedPiiMap.set(k, v);
+    }
 
-    if (existing !== null) {
-      // Decrypt existing PII map
-      const existingPiiMap = await decryptPIIMap(existing.piiMap, key);
-
-      // Merge maps: start with existing, add new entries
-      mergedPiiMap = new Map(existingPiiMap);
-      for (const [k, v] of newPiiMap) {
-        mergedPiiMap.set(k, v);
-      }
-
-      // Merge entity counts
-      mergedEntityCounts = { ...existing.metadata.entityCounts };
-      for (const [type, count] of Object.entries(result.stats.countsByType)) {
-        mergedEntityCounts[type] = (mergedEntityCounts[type] ?? 0) + count;
-      }
-
-      // Preserve original creation time
-      createdAt = existing.metadata.createdAt;
-    } else {
-      mergedPiiMap = newPiiMap;
-      mergedEntityCounts = result.stats.countsByType;
-      createdAt = Date.now();
+    // Merge entity counts
+    const mergedEntityCounts = { ...existingEntityCounts };
+    for (const [type, count] of Object.entries(result.stats.countsByType)) {
+      mergedEntityCounts[type] = (mergedEntityCounts[type] ?? 0) + count;
     }
 
     // Re-encrypt the merged PII map
