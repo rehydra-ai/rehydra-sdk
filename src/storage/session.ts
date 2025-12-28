@@ -81,8 +81,8 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
 
     // Merge maps: start with existing (if any), add new entries
     const mergedPiiMap: RawPIIMap = existingPiiMap
-      ? new Map(existingPiiMap)
-      : new Map();
+      ? new Map<string, string>(existingPiiMap)
+      : new Map<string, string>();
     for (const [k, v] of newPiiMap) {
       mergedPiiMap.set(k, v);
     }
