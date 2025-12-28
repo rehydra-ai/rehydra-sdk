@@ -73,7 +73,7 @@ async function loadSQLiteDriver(dbPath: string): Promise<SQLiteDatabase> {
   } else {
     // Node.js: use better-sqlite3
     try {
-      const betterSqlite3 = await import("better-sqlite3");
+      const betterSqlite3 = await import(/* @vite-ignore */ "better-sqlite3");
       const Database = betterSqlite3.default;
       return new Database(dbPath) as unknown as SQLiteDatabase;
     } catch (error) {
