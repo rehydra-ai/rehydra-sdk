@@ -483,6 +483,199 @@ class SecureKeyProvider implements KeyProvider {
 - **Rotate keys** - Implement key rotation for long-running applications
 - **Enable leak scanning** - Catch any missed PII in output
 
+## PII Map Storage
+
+For applications that need to persist encrypted PII maps (e.g., chat applications where you need to rehydrate later), use sessions with built-in storage providers.
+
+### Storage Providers
+
+| Provider | Environment | Persistence | Use Case |
+|----------|-------------|-------------|----------|
+| `InMemoryPIIStorageProvider` | All | None (lost on restart) | Development, testing |
+| `SQLitePIIStorageProvider` | Node.js, Bun | File-based | Server-side applications |
+| `IndexedDBPIIStorageProvider` | Browser | Browser storage | Client-side applications |
+
+### Important: Storage Only Works with Sessions
+
+> **Note:** The `piiStorageProvider` is only used when you call `anonymizer.session()`. 
+> Calling `anonymizer.anonymize()` directly does NOT save to storage - the encrypted PII map 
+> is only returned in the result for you to handle manually.
+
+```typescript
+// ❌ Storage NOT used - you must handle the PII map yourself
+const result = await anonymizer.anonymize('Hello John!');
+// result.piiMap is returned but NOT saved to storage
+
+// ✅ Storage IS used - auto-saves and auto-loads
+const session = anonymizer.session('conversation-123');
+const result = await session.anonymize('Hello John!');
+// result.piiMap is automatically saved to storage
+```
+
+### Example: Without Storage (Simple One-Off Usage)
+
+For simple use cases where you don't need persistence:
+
+```typescript
+import { createAnonymizer, decryptPIIMap, rehydrate, InMemoryKeyProvider } from 'rehydra';
+
+const keyProvider = new InMemoryKeyProvider();
+const anonymizer = createAnonymizer({
+  ner: { mode: 'quantized' },
+  keyProvider,
+});
+await anonymizer.initialize();
+
+// Anonymize
+const result = await anonymizer.anonymize('Hello John Smith!');
+
+// Translate (or other processing)
+const translated = await translateAPI(result.anonymizedText);
+
+// Rehydrate manually using the returned PII map
+const key = await keyProvider.getKey();
+const piiMap = await decryptPIIMap(result.piiMap, key);
+const original = rehydrate(translated, piiMap);
+```
+
+### Example: With Storage (Persistent Sessions)
+
+For applications that need to persist PII maps across requests/restarts:
+
+```typescript
+import { 
+  createAnonymizer,
+  InMemoryKeyProvider,
+  SQLitePIIStorageProvider,
+} from 'rehydra';
+
+// 1. Setup storage (once at app start)
+const storage = new SQLitePIIStorageProvider('./pii-maps.db');
+await storage.initialize();
+
+// 2. Create anonymizer with storage and key provider
+const anonymizer = createAnonymizer({
+  ner: { mode: 'quantized' },
+  keyProvider: new InMemoryKeyProvider(),
+  piiStorageProvider: storage,
+});
+await anonymizer.initialize();
+
+// 3. Create a session for each conversation
+const session = anonymizer.session('conversation-123');
+
+// 4. Anonymize - auto-saves to storage
+const result = await session.anonymize('Hello John Smith from Acme Corp!');
+console.log(result.anonymizedText);
+// "Hello <PII type="PERSON" id="1"/> from <PII type="ORG" id="1"/>!"
+
+// 5. Later (even after app restart): rehydrate - auto-loads and decrypts
+const translated = await translateAPI(result.anonymizedText);
+const original = await session.rehydrate(translated);
+console.log(original);
+// "Hello John Smith from Acme Corp!"
+
+// 6. Optional: check existence or delete
+await session.exists();  // true
+await session.delete();  // removes from storage
+```
+
+### Example: Multiple Conversations
+
+Each session ID maps to a separate stored PII map:
+
+```typescript
+// Different chat sessions
+const chat1 = anonymizer.session('user-alice-chat');
+const chat2 = anonymizer.session('user-bob-chat');
+
+await chat1.anonymize('Alice: Contact me at alice@example.com');
+await chat2.anonymize('Bob: My number is +49 30 123456');
+
+// Each session has independent storage
+await chat1.rehydrate(translatedText1);  // Uses Alice's PII map
+await chat2.rehydrate(translatedText2);  // Uses Bob's PII map
+```
+
+### SQLite Provider (Node.js + Bun)
+
+The SQLite provider works on both Node.js and Bun with automatic runtime detection:
+
+```typescript
+import { SQLitePIIStorageProvider } from 'rehydra';
+
+// File-based database
+const storage = new SQLitePIIStorageProvider('./data/pii-maps.db');
+await storage.initialize();
+
+// Or in-memory for testing
+const testStorage = new SQLitePIIStorageProvider(':memory:');
+await testStorage.initialize();
+```
+
+**Dependencies:**
+- **Bun**: Uses built-in `bun:sqlite` (no additional install needed)
+- **Node.js**: Requires `better-sqlite3`:
+
+```bash
+npm install better-sqlite3
+```
+
+### IndexedDB Provider (Browser)
+
+```typescript
+import { 
+  createAnonymizer,
+  InMemoryKeyProvider,
+  IndexedDBPIIStorageProvider,
+} from 'rehydra';
+
+// Custom database name (defaults to 'rehydra-pii-storage')
+const storage = new IndexedDBPIIStorageProvider('my-app-pii');
+
+const anonymizer = createAnonymizer({
+  ner: { mode: 'quantized' },
+  keyProvider: new InMemoryKeyProvider(),
+  piiStorageProvider: storage,
+});
+await anonymizer.initialize();
+
+// Use sessions as usual
+const session = anonymizer.session('browser-chat-123');
+const result = await session.anonymize('Hello John!');
+const original = await session.rehydrate(result.anonymizedText);
+```
+
+### Session Interface
+
+The session object provides these methods:
+
+```typescript
+interface AnonymizerSession {
+  readonly sessionId: string;
+  anonymize(text: string, locale?: string, policy?: Partial<AnonymizationPolicy>): Promise<AnonymizationResult>;
+  rehydrate(text: string): Promise<string>;
+  load(): Promise<StoredPIIMap | null>;
+  delete(): Promise<boolean>;
+  exists(): Promise<boolean>;
+}
+```
+
+### Data Retention
+
+**Entries persist forever by default.** Use `cleanup()` on the storage provider to remove old entries:
+
+```typescript
+// Delete entries older than 7 days
+const count = await storage.cleanup(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+
+// Or delete specific sessions
+await session.delete();
+
+// List all stored sessions
+const sessionIds = await storage.list();
+```
+
 ## Browser Usage
 
 The library works seamlessly in browsers without any special configuration.

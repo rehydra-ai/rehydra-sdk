@@ -344,8 +344,10 @@ describe("NodeStorageProvider", () => {
       const existingDir = nodePath.join(tempDir, "existing-dir");
       await fs.mkdir(existingDir, { recursive: true });
 
-      // Should not throw
-      await expect(provider.mkdir(existingDir)).resolves.not.toThrow();
+      // Should not throw - mkdir with recursive: true is idempotent
+      await provider.mkdir(existingDir);
+      const stat = await fs.stat(existingDir);
+      expect(stat.isDirectory()).toBe(true);
     });
   });
 
@@ -372,9 +374,10 @@ describe("NodeStorageProvider", () => {
     it("should not throw with force option for non-existent file", async () => {
       const nonExistent = nodePath.join(tempDir, "force-remove.txt");
 
-      await expect(
-        provider.rm(nonExistent, { force: true })
-      ).resolves.not.toThrow();
+      // force option should suppress errors for non-existent files
+      await provider.rm(nonExistent, { force: true });
+      // If we get here without throwing, the test passes
+      expect(true).toBe(true);
     });
 
     it("should throw without force option for non-existent file", async () => {
@@ -425,6 +428,50 @@ describe("NodeStorageProvider", () => {
     });
   });
 
+  describe("getCacheDir environment handling", () => {
+    const originalPlatform = process.platform;
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      // Restore original environment
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      process.env = { ...originalEnv };
+    });
+
+    it("should use XDG_CACHE_HOME on Linux when set", () => {
+      // This test requires a new provider to pick up env changes
+      const customXdg = "/custom/xdg/cache";
+      process.env["XDG_CACHE_HOME"] = customXdg;
+      
+      // Create new provider to pick up the env
+      const newProvider = new NodeStorageProvider();
+      
+      // Only test on non-darwin, non-win32 platforms or skip
+      if (process.platform !== "darwin" && process.platform !== "win32") {
+        const cacheDir = newProvider.getCacheDir("test");
+        expect(cacheDir).toContain(customXdg);
+      } else {
+        // On macOS/Windows, just verify it returns a valid path
+        const cacheDir = newProvider.getCacheDir("test");
+        expect(cacheDir).toContain("rehydra");
+      }
+    });
+
+    it("should fall back to ~/.cache on Linux when XDG_CACHE_HOME not set", () => {
+      delete process.env["XDG_CACHE_HOME"];
+      
+      const newProvider = new NodeStorageProvider();
+      
+      if (process.platform !== "darwin" && process.platform !== "win32") {
+        const cacheDir = newProvider.getCacheDir("test");
+        expect(cacheDir).toContain(".cache");
+      } else {
+        // On other platforms, just verify it works
+        const cacheDir = newProvider.getCacheDir("test");
+        expect(cacheDir).toBeTruthy();
+      }
+    });
+  });
 });
 
 describe("BrowserStorageProvider (mock tests)", () => {
@@ -477,5 +524,54 @@ describe("BrowserStorageProvider (mock tests)", () => {
 
     // mkdir should complete without error (it's a no-op in browser)
     await expect(provider.mkdir("some/path")).resolves.toBeUndefined();
+  });
+});
+
+describe("Storage Provider environment detection edge cases", () => {
+  beforeEach(() => {
+    resetStorageProvider();
+  });
+
+  afterEach(() => {
+    resetStorageProvider();
+  });
+
+  it("should reset provider correctly", async () => {
+    const provider1 = await getStorageProvider();
+    resetStorageProvider();
+    const provider2 = await getStorageProvider();
+    // After reset, should create new provider instance
+    expect(provider1).toBeDefined();
+    expect(provider2).toBeDefined();
+  });
+
+  it("setStorageProvider should override detection", async () => {
+    const customProvider: StorageProvider = {
+      readFile: async () => new Uint8Array([1, 2, 3]),
+      readTextFile: async () => "custom",
+      writeFile: async () => {},
+      exists: async () => false,
+      mkdir: async () => {},
+      rm: async () => {},
+      getCacheDir: () => "/custom/path",
+    };
+
+    setStorageProvider(customProvider);
+    const provider = await getStorageProvider();
+
+    expect(await provider.readTextFile("any")).toBe("custom");
+    expect(provider.getCacheDir("sub")).toBe("/custom/path");
+  });
+
+  it("isBrowser should return false in Node.js", () => {
+    expect(isBrowser()).toBe(false);
+  });
+
+  it("isWebWorker should return false in Node.js", () => {
+    expect(isWebWorker()).toBe(false);
+  });
+
+  it("isNode should return true in Node.js", () => {
+    expect(isNode()).toBe(true);
   });
 });

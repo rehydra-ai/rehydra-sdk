@@ -7,8 +7,8 @@
 export * from "./types/index.js";
 
 // Re-export recognizers
+export type { Recognizer } from "./recognizers/index.js";
 export {
-  Recognizer,
   RegexRecognizer,
   RecognizerRegistry,
   createDefaultRegistry,
@@ -96,13 +96,13 @@ export {
 } from "./pipeline/index.js";
 
 // Re-export crypto
+export type { KeyProvider } from "./crypto/index.js";
 export {
   encryptPIIMap,
   decryptPIIMap,
   generateKey,
   deriveKey,
   generateSalt,
-  KeyProvider,
   InMemoryKeyProvider,
   ConfigKeyProvider,
   validateKey,
@@ -111,7 +111,7 @@ export {
   base64ToUint8Array,
 } from "./crypto/index.js";
 
-// Re-export storage utilities
+// Re-export storage utilities (file system abstraction)
 export {
   getStorageProvider,
   isNode,
@@ -120,6 +120,22 @@ export {
   setStorageProvider,
   type StorageProvider,
 } from "./utils/storage.js";
+
+// Re-export PII storage providers (for persisting encrypted PII maps)
+export {
+  type PIIStorageProvider,
+  type PIIMapMetadata,
+  type StoredPIIMap,
+  type ListOptions,
+  type AnonymizerSession,
+  InMemoryPIIStorageProvider,
+  SQLitePIIStorageProvider,
+  IndexedDBPIIStorageProvider,
+} from "./storage/index.js";
+
+// Import session implementation for internal use
+import type { PIIStorageProvider, AnonymizerSession } from "./storage/index.js";
+import { AnonymizerSessionImpl } from "./storage/session.js";
 
 // Re-export path utilities
 export {
@@ -282,6 +298,12 @@ export interface AnonymizerConfig {
   /** Key provider for encryption (generates random key if not provided) */
   keyProvider?: KeyProvider;
 
+  /**
+   * PII storage provider for automatic session-based persistence
+   * When provided, enables the session() method for automatic PII map storage
+   */
+  piiStorageProvider?: PIIStorageProvider;
+
   /** Default policy (uses default if not provided) */
   defaultPolicy?: AnonymizationPolicy;
 
@@ -302,6 +324,7 @@ export class Anonymizer {
   private nerConfig: NERConfig;
   private semanticConfig: SemanticConfig;
   private keyProvider: KeyProvider | null;
+  private piiStorageProvider: PIIStorageProvider | null;
   private defaultPolicy: AnonymizationPolicy;
   private modelVersion: string;
   private policyVersion: string;
@@ -311,6 +334,7 @@ export class Anonymizer {
   constructor(config: AnonymizerConfig = {}) {
     this.registry = config.registry ?? createDefaultRegistry();
     this.keyProvider = config.keyProvider ?? null;
+    this.piiStorageProvider = config.piiStorageProvider ?? null;
     this.defaultPolicy = config.defaultPolicy ?? createDefaultPolicy();
     this.policyVersion = config.policyVersion ?? "1.0.0";
 
@@ -597,6 +621,56 @@ export class Anonymizer {
    */
   get isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Creates a session-bound interface for automatic PII map storage
+   *
+   * @param sessionId - Unique identifier for this session/conversation
+   * @returns AnonymizerSession that auto-saves on anonymize and auto-loads on rehydrate
+   * @throws Error if piiStorageProvider was not configured
+   *
+   * @example
+   * ```typescript
+   * const session = anonymizer.session('chat-123');
+   *
+   * // Anonymize - auto-saves to storage
+   * const result = await session.anonymize('Hello John Smith!');
+   *
+   * // Rehydrate - auto-loads and decrypts
+   * const original = await session.rehydrate(translatedText);
+   * ```
+   */
+  session(sessionId: string): AnonymizerSession {
+    if (this.piiStorageProvider === null) {
+      throw new Error(
+        "Cannot create session: piiStorageProvider not configured.\n\n" +
+          "Configure storage when creating the anonymizer:\n" +
+          "  const anonymizer = createAnonymizer({\n" +
+          "    piiStorageProvider: new SQLitePIIStorageProvider('./pii.db'),\n" +
+          "    keyProvider: new InMemoryKeyProvider(),\n" +
+          "  });"
+      );
+    }
+
+    if (this.keyProvider === null) {
+      throw new Error(
+        "Cannot create session: keyProvider not configured.\n\n" +
+          "A key provider is required for session-based storage to decrypt PII maps.\n" +
+          "Configure it when creating the anonymizer:\n" +
+          "  const anonymizer = createAnonymizer({\n" +
+          "    piiStorageProvider: storage,\n" +
+          "    keyProvider: new InMemoryKeyProvider(),\n" +
+          "  });"
+      );
+    }
+
+    return new AnonymizerSessionImpl(
+      this,
+      sessionId,
+      this.piiStorageProvider,
+      this.keyProvider
+    );
   }
 }
 

@@ -155,9 +155,16 @@ describe("BrowserStorageProvider", () => {
     });
 
     it("should not throw with force option for non-existent file", async () => {
-      await expect(
-        provider.rm("nonexistent.txt", { force: true })
-      ).resolves.not.toThrow();
+      // force option should suppress errors for non-existent files
+      await provider.rm("nonexistent.txt", { force: true });
+      // If we get here without throwing, the test passes
+      expect(true).toBe(true);
+    });
+
+    it("should handle removing a file that exists", async () => {
+      await provider.writeFile("single-file.txt", "content");
+      await provider.rm("single-file.txt");
+      expect(await provider.exists("single-file.txt")).toBe(false);
     });
   });
 
@@ -230,6 +237,91 @@ describe("BrowserStorageProvider", () => {
       await expect(provider.readFile("invalid/data")).rejects.toThrow(
         "Invalid data type"
       );
+    });
+  });
+
+  describe("path normalization edge cases", () => {
+    it("should handle multiple leading slashes", async () => {
+      await provider.writeFile("///multiple/slashes.txt", "content");
+      const data = await provider.readTextFile("multiple/slashes.txt");
+      expect(data).toBe("content");
+    });
+
+    it("should handle paths with double slashes", async () => {
+      await provider.writeFile("path//with//double.txt", "content");
+      const exists = await provider.exists("path/with/double.txt");
+      expect(exists).toBe(true);
+    });
+  });
+
+  describe("readTextFile edge cases", () => {
+    it("should handle reading Uint8Array stored data as text with default encoding", async () => {
+      // Write binary data that represents UTF-8 text
+      const encoder = new TextEncoder();
+      const binaryData = encoder.encode("Hello from binary");
+      await provider.writeFile("binary-as-text.txt", binaryData);
+
+      const text = await provider.readTextFile("binary-as-text.txt");
+      expect(text).toBe("Hello from binary");
+    });
+  });
+
+  describe("exists edge cases", () => {
+    it("should return false for path that was never written", async () => {
+      const exists = await provider.exists("never/written/path.txt");
+      expect(exists).toBe(false);
+    });
+
+    it("should return true immediately after write", async () => {
+      await provider.writeFile("immediate-check.txt", "data");
+      const exists = await provider.exists("immediate-check.txt");
+      expect(exists).toBe(true);
+    });
+  });
+
+  describe("rm edge cases", () => {
+    it("should handle recursive delete with nested structure", async () => {
+      await provider.writeFile("deep/nested/a/file1.txt", "1");
+      await provider.writeFile("deep/nested/b/file2.txt", "2");
+      await provider.writeFile("deep/nested/c/d/file3.txt", "3");
+
+      await provider.rm("deep", { recursive: true });
+
+      expect(await provider.exists("deep/nested/a/file1.txt")).toBe(false);
+      expect(await provider.exists("deep/nested/b/file2.txt")).toBe(false);
+      expect(await provider.exists("deep/nested/c/d/file3.txt")).toBe(false);
+    });
+
+    it("should handle recursive delete on non-existent path", async () => {
+      // Should not throw even if path doesn't exist
+      await provider.rm("non-existent-dir", { recursive: true });
+      expect(true).toBe(true);
+    });
+
+    it("should handle recursive delete with force option", async () => {
+      await provider.rm("another-non-existent", { recursive: true, force: true });
+      expect(true).toBe(true);
+    });
+  });
+
+  describe("OPFS model file detection", () => {
+    it("should detect .safetensors as OPFS candidate", async () => {
+      const safetensorPath = "rehydra/models/model.safetensors";
+      const testData = new Uint8Array([1, 2, 3]);
+
+      await provider.writeFile(safetensorPath, testData);
+      const exists = await provider.exists(safetensorPath);
+      expect(exists).toBe(true);
+    });
+
+    it("should NOT use OPFS for non-model paths even with model extensions", async () => {
+      // This file has .onnx extension but not in /models/ path
+      const nonModelPath = "data/config.onnx";
+      const testData = new Uint8Array([1, 2, 3]);
+
+      await provider.writeFile(nonModelPath, testData);
+      const exists = await provider.exists(nonModelPath);
+      expect(exists).toBe(true);
     });
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "rehydra",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "On-device PII anonymization module for high-privacy translation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -40,7 +40,8 @@
   },
   "peerDependencies": {
     "onnxruntime-node": "^1.17.0",
-    "onnxruntime-web": "^1.17.0"
+    "onnxruntime-web": "^1.17.0",
+    "better-sqlite3": "^11.0.0"
   },
   "peerDependenciesMeta": {
     "onnxruntime-node": {
@@ -48,13 +49,18 @@
     },
     "onnxruntime-web": {
       "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "better-sqlite3": "^11.0.0",
     "eslint": "^8.55.0",
     "fake-indexeddb": "^6.2.5",
     "typescript": "^5.3.0",

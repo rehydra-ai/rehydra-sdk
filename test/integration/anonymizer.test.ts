@@ -230,7 +230,7 @@ describe('Anonymizer Class', () => {
       const anonymizer = createAnonymizer({ keyProvider });
       await anonymizer.initialize();
 
-      await expect(anonymizer.dispose()).resolves.not.toThrow();
+      await expect(anonymizer.dispose()).resolves.toBeUndefined();
     });
 
     it('should allow re-initialization after dispose', async () => {
