@@ -200,6 +200,64 @@ describe("AnonymizerSession", () => {
     });
   });
 
+  describe("key mismatch handling", () => {
+    it("should throw descriptive error when decryption fails due to key mismatch", async () => {
+      // Create session with one key and store some data
+      const session = anonymizer.session("key-mismatch-test");
+      await session.anonymize("test@example.com");
+
+      // Create a new anonymizer with a DIFFERENT key but same storage
+      const differentKeyProvider = new InMemoryKeyProvider(); // New key!
+      const anonymizerWithDifferentKey = createAnonymizer({
+        ner: { mode: "disabled" },
+        piiStorageProvider: storage, // Same storage
+        keyProvider: differentKeyProvider, // Different key
+      });
+      await anonymizerWithDifferentKey.initialize();
+
+      // Try to use the session with different key
+      const sessionWithDifferentKey =
+        anonymizerWithDifferentKey.session("key-mismatch-test");
+
+      // Should throw descriptive error
+      await expect(
+        sessionWithDifferentKey.anonymize("another@example.com")
+      ).rejects.toThrow(/Failed to decrypt existing session data/);
+
+      await anonymizerWithDifferentKey.dispose();
+    });
+
+    it("should allow recovery by deleting the session", async () => {
+      // Create session with one key and store some data
+      const session = anonymizer.session("recovery-test");
+      await session.anonymize("test@example.com");
+
+      // Create a new anonymizer with a DIFFERENT key but same storage
+      const differentKeyProvider = new InMemoryKeyProvider();
+      const anonymizerWithDifferentKey = createAnonymizer({
+        ner: { mode: "disabled" },
+        piiStorageProvider: storage,
+        keyProvider: differentKeyProvider,
+      });
+      await anonymizerWithDifferentKey.initialize();
+
+      // Get session with different key - deletion should work even with wrong key
+      const sessionWithDifferentKey =
+        anonymizerWithDifferentKey.session("recovery-test");
+
+      // Delete the old session (doesn't need decryption)
+      await sessionWithDifferentKey.delete();
+
+      // Now should be able to anonymize fresh
+      const result = await sessionWithDifferentKey.anonymize(
+        "fresh@example.com"
+      );
+      expect(result.anonymizedText).toContain('type="EMAIL"');
+
+      await anonymizerWithDifferentKey.dispose();
+    });
+  });
+
   describe("multiple sessions with same anonymizer", () => {
     it("should maintain separate storage for different sessions", async () => {
       const session1 = anonymizer.session("session-1");

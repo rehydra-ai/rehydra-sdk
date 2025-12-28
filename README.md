@@ -32,6 +32,8 @@ npm install rehydra
 npm install rehydra onnxruntime-web
 ```
 
+When using Vite, webpack, or other bundlers, the browser-safe entry point is automatically selected via [conditional exports](https://nodejs.org/api/packages.html#conditional-exports). This entry point excludes Node.js-specific modules like SQLite storage.
+
 ### Browser (without bundler)
 
 ```html
@@ -492,8 +494,10 @@ For applications that need to persist encrypted PII maps (e.g., chat application
 | Provider | Environment | Persistence | Use Case |
 |----------|-------------|-------------|----------|
 | `InMemoryPIIStorageProvider` | All | None (lost on restart) | Development, testing |
-| `SQLitePIIStorageProvider` | Node.js, Bun | File-based | Server-side applications |
+| `SQLitePIIStorageProvider` | Node.js, Bun only* | File-based | Server-side applications |
 | `IndexedDBPIIStorageProvider` | Browser | Browser storage | Client-side applications |
+
+*\*Not available in browser builds. Use `IndexedDBPIIStorageProvider` for browser applications.*
 
 ### Important: Storage Only Works with Sessions
 
@@ -624,12 +628,16 @@ await session.rehydrate(msg2.anonymizedText); // ✓
 
 This ensures that follow-up messages referencing the same PII produce consistent placeholders, and rehydration works correctly across the entire conversation.
 
-### SQLite Provider (Node.js + Bun)
+### SQLite Provider (Node.js + Bun only)
 
-The SQLite provider works on both Node.js and Bun with automatic runtime detection:
+The SQLite provider works on both Node.js and Bun with automatic runtime detection.
+
+> **Note:** `SQLitePIIStorageProvider` is **not available in browser builds**. When bundling for browser with Vite/webpack, use `IndexedDBPIIStorageProvider` instead. The browser-safe build automatically excludes SQLite to avoid bundling Node.js dependencies.
 
 ```typescript
+// Node.js / Bun only
 import { SQLitePIIStorageProvider } from 'rehydra';
+// Or explicitly: import { SQLitePIIStorageProvider } from 'rehydra/storage/sqlite';
 
 // File-based database
 const storage = new SQLitePIIStorageProvider('./data/pii-maps.db');
@@ -770,6 +778,52 @@ The library works seamlessly in browsers without any special configuration.
 - **ONNX runtime**: Automatically loaded from CDN if not bundled
 - **Offline support**: After initial download, everything works offline
 - **Storage**: Uses IndexedDB and OPFS - data persists across sessions
+
+### Bundler Support (Vite, webpack, esbuild)
+
+The package uses [conditional exports](https://nodejs.org/api/packages.html#conditional-exports) to automatically provide a browser-safe build when bundling for the web. This means:
+
+- **Automatic**: Vite, webpack, esbuild, and other modern bundlers will automatically use `dist/browser.js`
+- **No Node.js modules**: The browser build excludes `SQLitePIIStorageProvider` and other Node.js-specific code
+- **Tree-shakable**: Only the code you use is included in your bundle
+
+```json
+// package.json exports (simplified)
+{
+  "exports": {
+    ".": {
+      "browser": "./dist/browser.js",
+      "node": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  }
+}
+```
+
+**Explicit imports** (if needed):
+
+```typescript
+// Browser-only build (excludes SQLite, Node.js fs, etc.)
+import { createAnonymizer } from 'rehydra/browser';
+
+// Node.js build (includes everything)
+import { createAnonymizer, SQLitePIIStorageProvider } from 'rehydra/node';
+
+// SQLite storage only (Node.js only)
+import { SQLitePIIStorageProvider } from 'rehydra/storage/sqlite';
+```
+
+**Browser build excludes:**
+- `SQLitePIIStorageProvider` (use `IndexedDBPIIStorageProvider` instead)
+- Node.js `fs`, `path`, `os` modules
+
+**Browser build includes:**
+- All recognizers (email, phone, IBAN, etc.)
+- NER model support (with `onnxruntime-web`)
+- Semantic enrichment
+- `InMemoryPIIStorageProvider`
+- `IndexedDBPIIStorageProvider`
+- All crypto utilities
 
 ## Bun Support
 

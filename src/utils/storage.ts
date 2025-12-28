@@ -99,11 +99,11 @@ export async function getStorageProvider(): Promise<StorageProvider> {
 
   if (isNode()) {
     // Dynamically import Node.js storage provider
-    const { NodeStorageProvider } = await import("./storage-node.js");
+    const { NodeStorageProvider } = await import(/* @vite-ignore */ "./storage-node.js");
     storageProviderInstance = new NodeStorageProvider();
   } else if (isBrowser() || isWebWorker()) {
     // Dynamically import browser storage provider
-    const { BrowserStorageProvider } = await import("./storage-browser.js");
+    const { BrowserStorageProvider } = await import(/* @vite-ignore */ "./storage-browser.js");
     storageProviderInstance = new BrowserStorageProvider();
   } else {
     throw new Error(

@@ -1,6 +1,9 @@
 /**
- * Rehydra Module
- * Main entry point for on-device PII anonymization
+ * Rehydra Module - Browser Entry Point
+ * Browser-safe entry point for on-device PII anonymization
+ * 
+ * This module excludes Node.js-specific exports like SQLitePIIStorageProvider.
+ * For full functionality including SQLite, use the main entry point or import from 'rehydra/node'.
  */
 
 // Re-export types
@@ -121,8 +124,7 @@ export {
   type StorageProvider,
 } from "./utils/storage.js";
 
-// Re-export PII storage providers (for persisting encrypted PII maps)
-// This includes SQLitePIIStorageProvider for Node.js
+// Re-export PII storage providers (browser-safe only - no SQLite)
 export {
   type PIIStorageProvider,
   type PIIMapMetadata,
@@ -130,9 +132,10 @@ export {
   type ListOptions,
   type AnonymizerSession,
   InMemoryPIIStorageProvider,
-  SQLitePIIStorageProvider,
   IndexedDBPIIStorageProvider,
-} from "./storage/index.js";
+  // Note: SQLitePIIStorageProvider is NOT exported in browser build
+  // Import from 'rehydra/storage/sqlite' if needed in Node.js
+} from "./storage/browser.js";
 
 // Re-export path utilities
 export {

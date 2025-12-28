@@ -59,9 +59,28 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     let existingEntityCounts: Record<string, number>;
 
     if (existing !== null) {
-      existingPiiMap = await decryptPIIMap(existing.piiMap, key);
-      createdAt = existing.metadata.createdAt;
-      existingEntityCounts = existing.metadata.entityCounts;
+      try {
+        existingPiiMap = await decryptPIIMap(existing.piiMap, key);
+        createdAt = existing.metadata.createdAt;
+        existingEntityCounts = existing.metadata.entityCounts;
+      } catch (error) {
+        // Decryption failed - likely key mismatch
+        const isKeyMismatch = 
+          error instanceof Error && 
+          (error.name === "OperationError" || error.message.includes("decrypt"));
+        
+        if (isKeyMismatch) {
+          throw new Error(
+            `Failed to decrypt existing session data for "${this.sessionId}". ` +
+            `The encryption key may have changed since this session was created.\n\n` +
+            `To fix this, either:\n` +
+            `  1. Use the same key that was used to create the session\n` +
+            `  2. Delete the old session: await session.delete()\n` +
+            `  3. Use a persistent key provider (e.g., ConfigKeyProvider)`
+          );
+        }
+        throw error;
+      }
     } else {
       existingPiiMap = undefined;
       createdAt = Date.now();
