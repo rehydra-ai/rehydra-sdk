@@ -68,8 +68,8 @@ async function loadSQLiteDriver(dbPath: string): Promise<SQLiteDatabase> {
     // Bun: use built-in bun:sqlite
     // Use dynamic import with string to avoid TypeScript trying to resolve the module
     const bunSqlite = "bun:sqlite";
-    const { Database } = await import(/* @vite-ignore */ bunSqlite);
-    return new Database(dbPath) as unknown as SQLiteDatabase;
+    const bunModule = (await import(/* @vite-ignore */ bunSqlite)) as { Database: new (path: string) => SQLiteDatabase };
+    return new bunModule.Database(dbPath);
   } else {
     // Node.js: use better-sqlite3
     try {
@@ -177,12 +177,16 @@ export class SQLitePIIStorageProvider implements PIIStorageProvider {
   /**
    * Save an encrypted PII map
    */
-  async save(
+  save(
     conversationId: string,
     piiMap: EncryptedPIIMap,
     metadata?: Partial<PIIMapMetadata>
   ): Promise<void> {
-    this.ensureInitialized();
+    try {
+      this.ensureInitialized();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     const now = Date.now();
 
@@ -193,8 +197,11 @@ export class SQLitePIIStorageProvider implements PIIStorageProvider {
     ).get(conversationId) as Pick<PIIMapRow, "created_at" | "entity_counts" | "model_version"> | null | undefined;
 
     const createdAt = existing?.created_at ?? metadata?.createdAt ?? now;
+    const existingEntityCounts = existing?.entity_counts;
     const entityCounts = metadata?.entityCounts ?? 
-      (existing?.entity_counts ? JSON.parse(existing.entity_counts) : {});
+      (typeof existingEntityCounts === "string" && existingEntityCounts.length > 0 
+        ? (JSON.parse(existingEntityCounts) as Record<string, number>) 
+        : {});
     const modelVersion = metadata?.modelVersion ?? existing?.model_version ?? null;
 
     this.db!.prepare(`
@@ -211,22 +218,29 @@ export class SQLitePIIStorageProvider implements PIIStorageProvider {
       createdAt,
       now
     );
+
+    return Promise.resolve();
   }
 
   /**
    * Load an encrypted PII map
    */
-  async load(conversationId: string): Promise<StoredPIIMap | null> {
-    this.ensureInitialized();
+  load(conversationId: string): Promise<StoredPIIMap | null> {
+    try {
+      this.ensureInitialized();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     const row = this.db!.prepare(
       "SELECT * FROM pii_maps WHERE conversation_id = ?"
     ).get(conversationId) as PIIMapRow | null | undefined;
 
     // bun:sqlite returns null, better-sqlite3 returns undefined for no results
-    if (row == null) return null;
+    if (row == null) return Promise.resolve(null);
 
-    return {
+    const entityCountsRaw = row.entity_counts;
+    return Promise.resolve({
       piiMap: {
         ciphertext: row.ciphertext,
         iv: row.iv,
@@ -235,44 +249,58 @@ export class SQLitePIIStorageProvider implements PIIStorageProvider {
       metadata: {
         createdAt: row.created_at,
         updatedAt: row.updated_at ?? undefined,
-        entityCounts: row.entity_counts ? JSON.parse(row.entity_counts) : {},
+        entityCounts: typeof entityCountsRaw === "string" && entityCountsRaw.length > 0 
+          ? (JSON.parse(entityCountsRaw) as Record<string, number>) 
+          : {},
         modelVersion: row.model_version ?? undefined,
       },
-    };
+    });
   }
 
   /**
    * Delete a PII map
    */
-  async delete(conversationId: string): Promise<boolean> {
-    this.ensureInitialized();
+  delete(conversationId: string): Promise<boolean> {
+    try {
+      this.ensureInitialized();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     const result = this.db!.prepare(
       "DELETE FROM pii_maps WHERE conversation_id = ?"
     ).run(conversationId);
 
-    return result.changes > 0;
+    return Promise.resolve(result.changes > 0);
   }
 
   /**
    * Check if a PII map exists
    */
-  async exists(conversationId: string): Promise<boolean> {
-    this.ensureInitialized();
+  exists(conversationId: string): Promise<boolean> {
+    try {
+      this.ensureInitialized();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     const row = this.db!.prepare(
       "SELECT 1 FROM pii_maps WHERE conversation_id = ?"
     ).get(conversationId);
 
     // bun:sqlite returns null, better-sqlite3 returns undefined for no results
-    return row != null;
+    return Promise.resolve(row != null);
   }
 
   /**
    * List stored conversation IDs
    */
-  async list(options?: ListOptions): Promise<string[]> {
-    this.ensureInitialized();
+  list(options?: ListOptions): Promise<string[]> {
+    try {
+      this.ensureInitialized();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     let sql = "SELECT conversation_id FROM pii_maps";
     const params: unknown[] = [];
@@ -293,20 +321,24 @@ export class SQLitePIIStorageProvider implements PIIStorageProvider {
       conversation_id: string;
     }>;
 
-    return rows.map((row) => row.conversation_id);
+    return Promise.resolve(rows.map((row) => row.conversation_id));
   }
 
   /**
    * Delete entries older than the specified date
    */
-  async cleanup(olderThan: Date): Promise<number> {
-    this.ensureInitialized();
+  cleanup(olderThan: Date): Promise<number> {
+    try {
+      this.ensureInitialized();
+    } catch (error) {
+      return Promise.reject(error);
+    }
 
     const result = this.db!.prepare(
       "DELETE FROM pii_maps WHERE created_at < ?"
     ).run(olderThan.getTime());
 
-    return result.changes;
+    return Promise.resolve(result.changes);
   }
 
   /**

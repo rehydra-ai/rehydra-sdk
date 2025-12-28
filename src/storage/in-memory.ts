@@ -35,7 +35,7 @@ export class InMemoryPIIStorageProvider implements PIIStorageProvider {
   /**
    * Save an encrypted PII map
    */
-  async save(
+  save(
     conversationId: string,
     piiMap: EncryptedPIIMap,
     metadata?: Partial<PIIMapMetadata>
@@ -54,33 +54,35 @@ export class InMemoryPIIStorageProvider implements PIIStorageProvider {
       piiMap,
       metadata: fullMetadata,
     });
+
+    return Promise.resolve();
   }
 
   /**
    * Load an encrypted PII map
    */
-  async load(conversationId: string): Promise<StoredPIIMap | null> {
-    return this.storage.get(conversationId) ?? null;
+  load(conversationId: string): Promise<StoredPIIMap | null> {
+    return Promise.resolve(this.storage.get(conversationId) ?? null);
   }
 
   /**
    * Delete a PII map
    */
-  async delete(conversationId: string): Promise<boolean> {
-    return this.storage.delete(conversationId);
+  delete(conversationId: string): Promise<boolean> {
+    return Promise.resolve(this.storage.delete(conversationId));
   }
 
   /**
    * Check if a PII map exists
    */
-  async exists(conversationId: string): Promise<boolean> {
-    return this.storage.has(conversationId);
+  exists(conversationId: string): Promise<boolean> {
+    return Promise.resolve(this.storage.has(conversationId));
   }
 
   /**
    * List stored conversation IDs
    */
-  async list(options?: ListOptions): Promise<string[]> {
+  list(options?: ListOptions): Promise<string[]> {
     let entries = Array.from(this.storage.entries());
 
     // Filter by olderThan if specified
@@ -100,13 +102,13 @@ export class InMemoryPIIStorageProvider implements PIIStorageProvider {
       ids = ids.slice(0, options.limit);
     }
 
-    return ids;
+    return Promise.resolve(ids);
   }
 
   /**
    * Delete entries older than the specified date
    */
-  async cleanup(olderThan: Date): Promise<number> {
+  cleanup(olderThan: Date): Promise<number> {
     const cutoff = olderThan.getTime();
     let deleted = 0;
 
@@ -117,7 +119,7 @@ export class InMemoryPIIStorageProvider implements PIIStorageProvider {
       }
     }
 
-    return deleted;
+    return Promise.resolve(deleted);
   }
 
   /**
