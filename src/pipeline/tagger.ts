@@ -220,7 +220,7 @@ export function tagEntities(
 
   // Assign IDs
   const entitiesWithIds: Array<SpanMatch & { id: number }> = [];
-  
+
   // Global ID counter (starts from max existing + 1)
   let nextId = maxId + 1;
 
@@ -341,8 +341,20 @@ const FLEXIBLE_WS = `[\\s\\u00A0\\u2000-\\u200B]*`;
 const FLEXIBLE_WS_REQUIRED = `[\\s\\u00A0\\u2000-\\u200B]+`;
 
 /**
+ * HTML-encoded bracket patterns
+ * Matches both literal brackets and HTML entity encoded versions
+ * - Opening: < or &lt;
+ * - Closing: > or &gt;
+ */
+const OPEN_BRACKET = `(?:<|&lt;)`;
+const CLOSE_BRACKET = `(?:>|&gt;)`;
+
+/**
  * Builds patterns for fuzzy PII tag matching
  * Handles various translation artifacts and optional semantic attributes
+ *
+ * Now also handles HTML-encoded tags where < becomes &lt; and > becomes &gt;
+ * This commonly happens when LLMs (like ChatGPT) HTML-encode their responses
  */
 function buildFuzzyTagPatterns(): RegExp[] {
   // Pattern for type attribute: type = "VALUE" (flexible spacing and quotes)
@@ -355,20 +367,22 @@ function buildFuzzyTagPatterns(): RegExp[] {
   // Optional scope attribute
   const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
 
-  // Self-closing tag endings: />, / >, >, or nothing if already closed inside quotes
-  const selfClosing = `${FLEXIBLE_WS}\\/?${FLEXIBLE_WS}>?`;
+  // Self-closing tag endings: />, / >, >, /&gt;, &gt;, or nothing if already closed inside quotes
+  const selfClosing = `${FLEXIBLE_WS}\\/?${FLEXIBLE_WS}${CLOSE_BRACKET}?`;
 
   return [
     // type first with optional gender/scope: <PII type="X" gender="Y" scope="Z" id="N"/>
+    // Also matches: &lt;PII type="X" gender="Y" scope="Z" id="N"/&gt;
     // Groups: type=1, gender=2, scope=3, id=4
     new RegExp(
-      `<${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${typeAttr}${genderAttr}${scopeAttr}${FLEXIBLE_WS_REQUIRED}${idAttr}${selfClosing}`,
+      `${OPEN_BRACKET}${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${typeAttr}${genderAttr}${scopeAttr}${FLEXIBLE_WS_REQUIRED}${idAttr}${selfClosing}`,
       "gi"
     ),
     // id first: <PII id="N" type="X"/>
+    // Also matches: &lt;PII id="N" type="X"/&gt;
     // Groups: id=1, type=2
     new RegExp(
-      `<${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${idAttr}${FLEXIBLE_WS_REQUIRED}${typeAttr}${selfClosing}`,
+      `${OPEN_BRACKET}${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${idAttr}${FLEXIBLE_WS_REQUIRED}${typeAttr}${selfClosing}`,
       "gi"
     ),
   ];
