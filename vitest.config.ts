@@ -12,10 +12,10 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/ner/**'],
     },
-  },
-  bench: {
-    include: ['test/benchmark/**/*.bench.ts'],
-    reporters: ['default'],
+    benchmark: {
+      include: ['test/benchmark/**/*.bench.ts'],
+      outputJson: './benchmarks/latest.json',
+    },
   },
 });
 

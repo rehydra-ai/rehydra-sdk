@@ -35,3 +35,6 @@ models/ner/
 # Temporary venv from setup script
 .ner-setup-venv/
 
+# Benchmark results (remove these lines to track in git)
+benchmarks/
+
