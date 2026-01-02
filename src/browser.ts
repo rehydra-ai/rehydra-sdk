@@ -46,6 +46,7 @@ export {
   type NERPrediction,
   type NERModelMode,
   type DownloadProgressCallback,
+  type OrtSessionOptions,
   MODEL_REGISTRY,
   getModelCacheDir,
   isModelDownloaded,

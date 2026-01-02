@@ -22,10 +22,33 @@ export interface OrtSession {
   run(feeds: Record<string, OrtTensor>): Promise<Record<string, OrtTensor>>;
 }
 
+/**
+ * ONNX Runtime session options for performance tuning
+ */
+export interface OrtSessionOptions {
+  /**
+   * Execution providers in priority order.
+   * - For onnxruntime-web: ['webgpu', 'wasm'] or ['wasm']
+   * - For onnxruntime-node: usually not needed (uses CPU by default)
+   * - With custom builds: ['coreml'], ['cuda'], etc.
+   */
+  executionProviders?: Array<string | { name: string; [key: string]: unknown }>;
+  /** Graph optimization level */
+  graphOptimizationLevel?: "disabled" | "basic" | "extended" | "all";
+  /** Number of threads for parallel execution within operators */
+  intraOpNumThreads?: number;
+  /** Number of threads for parallel execution between operators */
+  interOpNumThreads?: number;
+  /** Enable CPU memory arena for allocations */
+  enableCpuMemArena?: boolean;
+  /** Enable memory pattern optimization */
+  enableMemPattern?: boolean;
+}
+
 export interface OrtInferenceSession {
   create(
     pathOrBuffer: string | ArrayBuffer | Uint8Array,
-    options?: unknown
+    options?: OrtSessionOptions
   ): Promise<OrtSession>;
 }
 

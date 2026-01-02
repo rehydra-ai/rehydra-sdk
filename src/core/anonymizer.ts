@@ -24,6 +24,7 @@ import {
   NERModelStub,
   createNERModel,
   DEFAULT_LABEL_MAP,
+  type OrtSessionOptions,
 } from "../ner/index.js";
 
 import {
@@ -144,6 +145,13 @@ export interface NERConfig {
    * @example { PERSON: 0.8, ORG: 0.7 }
    */
   thresholds?: Partial<Record<PIIType, number>>;
+
+  /**
+   * ONNX session options for performance tuning
+   * Allows customizing execution providers, threading, and graph optimizations
+   * @example { executionProviders: ['CoreMLExecutionProvider', 'CPUExecutionProvider'] }
+   */
+  sessionOptions?: OrtSessionOptions;
 }
 
 /**
@@ -277,6 +285,7 @@ export class Anonymizer {
         modelPath: this.nerConfig.modelPath,
         vocabPath: this.nerConfig.vocabPath,
         modelVersion: this.modelVersion,
+        sessionOptions: this.nerConfig.sessionOptions,
       });
     } else {
       // 'standard' or 'quantized' - use model manager
@@ -304,6 +313,7 @@ export class Anonymizer {
         vocabPath,
         labelMap,
         modelVersion: this.modelVersion,
+        sessionOptions: this.nerConfig.sessionOptions,
       });
     }
 

@@ -221,6 +221,60 @@ await anonymizer.initialize();
 | `'standard'` | Full model, best accuracy | ~1.1 GB | Yes |
 | `'custom'` | Your own ONNX model | Varies | No |
 
+### ONNX Session Options
+
+Fine-tune ONNX Runtime performance with session options:
+
+```typescript
+const anonymizer = createAnonymizer({
+  ner: {
+    mode: 'quantized',
+    sessionOptions: {
+      // Graph optimization level: 'disabled' | 'basic' | 'extended' | 'all'
+      graphOptimizationLevel: 'all',  // default
+      
+      // Threading (Node.js only)
+      intraOpNumThreads: 4,   // threads within operators
+      interOpNumThreads: 1,   // threads between operators
+      
+      // Memory optimization
+      enableCpuMemArena: true,
+      enableMemPattern: true,
+    }
+  }
+});
+```
+
+#### Execution Providers
+
+By default, Rehydra uses:
+- **Node.js**: CPU (fastest for quantized models)
+- **Browsers**: WebGPU with WASM fallback
+
+To enable **CoreML on macOS** (for non-quantized models):
+
+```typescript
+const anonymizer = createAnonymizer({
+  ner: {
+    mode: 'standard',  // CoreML works better with FP32 models
+    sessionOptions: {
+      executionProviders: ['coreml', 'cpu'],
+    }
+  }
+});
+```
+
+> **Note:** CoreML provides minimal speedup for quantized (INT8) models since they're already optimized for CPU. Use CoreML with the standard FP32 model for best results.
+
+Available execution providers:
+| Provider | Platform | Best For |
+|----------|----------|----------|
+| `'cpu'` | All | Quantized models (default) |
+| `'coreml'` | macOS | Standard (FP32) models on Apple Silicon |
+| `'cuda'` | Linux (NVIDIA) | GPU acceleration |
+| `'webgpu'` | Browsers | GPU acceleration in Chrome 113+ |
+| `'wasm'` | Browsers | Fallback for all browsers |
+
 ### Main Functions
 
 #### `createAnonymizer(config?)`

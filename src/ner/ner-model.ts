@@ -4,7 +4,12 @@
  * Supports both onnxruntime-node and onnxruntime-web
  */
 
-import { loadRuntime, type OrtRuntime } from "#onnx-runtime";
+import {
+  loadRuntime,
+  getRuntimeType,
+  type OrtRuntime,
+  type OrtSessionOptions,
+} from "#onnx-runtime";
 import { SpanMatch, AnonymizationPolicy } from "../types/index.js";
 import {
   WordPieceTokenizer,
@@ -35,6 +40,8 @@ export interface NERModelConfig {
   doLowerCase: boolean;
   /** Model version for tracking */
   modelVersion: string;
+  /** ONNX session options for performance tuning */
+  sessionOptions?: OrtSessionOptions;
 }
 
 /**
@@ -65,6 +72,35 @@ export const DEFAULT_LABEL_MAP = [
 ];
 
 /**
+ * Builds optimized ONNX session options based on runtime environment
+ * @param runtimeType - The detected ONNX runtime type ('node' or 'web')
+ * @param customOptions - User-provided options that override defaults
+ */
+function buildSessionOptions(
+  runtimeType: "node" | "web" | null,
+  customOptions?: OrtSessionOptions
+): OrtSessionOptions {
+  const defaults: OrtSessionOptions = {
+    graphOptimizationLevel: "all",
+    enableCpuMemArena: true,
+    enableMemPattern: true,
+    intraOpNumThreads: 4,
+    interOpNumThreads: 1,
+  };
+
+  // Add execution providers based on environment
+  // Note: For Node.js, CPU is fastest for quantized models
+  // Users can override with sessionOptions.executionProviders = ['coreml', 'cpu'] if needed
+  if (runtimeType === "web") {
+    // WebGPU (if available) with WASM fallback for browsers
+    defaults.executionProviders = ["webgpu", "wasm"];
+  }
+
+  // Merge with custom options (custom options override defaults)
+  return { ...defaults, ...customOptions };
+}
+
+/**
  * NER Model wrapper for ONNX inference
  */
 export class NERModel {
@@ -87,6 +123,13 @@ export class NERModel {
     // Load ONNX runtime (auto-detects best runtime for environment)
     this.ort = await loadRuntime();
 
+    // Build optimized session options based on runtime and user config
+    const runtimeType = getRuntimeType();
+    const sessionOptions = buildSessionOptions(
+      runtimeType,
+      this.config.sessionOptions
+    );
+
     // Load ONNX model
     // In browsers, we need to load the model as ArrayBuffer since file paths don't work
     // onnxruntime-web accepts ArrayBuffer/Uint8Array, while onnxruntime-node accepts file paths
@@ -94,11 +137,15 @@ export class NERModel {
       const storage = await getStorageProvider();
       const modelData = await storage.readFile(this.config.modelPath);
       // onnxruntime-web accepts Uint8Array directly
-      this.session = await this.ort.InferenceSession.create(modelData);
+      this.session = await this.ort.InferenceSession.create(
+        modelData,
+        sessionOptions
+      );
     } else {
       // In Node.js, we can use the file path directly
       this.session = await this.ort.InferenceSession.create(
-        this.config.modelPath
+        this.config.modelPath,
+        sessionOptions
       );
     }
 
@@ -340,6 +387,7 @@ export function createNERModel(
     maxLength: config.maxLength ?? 512,
     doLowerCase: config.doLowerCase ?? false, // XLM-RoBERTa is cased
     modelVersion: config.modelVersion ?? "1.0.0",
+    sessionOptions: config.sessionOptions,
   };
 
   return new NERModel(fullConfig);
