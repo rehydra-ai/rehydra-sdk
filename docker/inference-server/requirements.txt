@@ -1,0 +1,14 @@
+# Rehydra NER Inference Service Dependencies
+
+# Web framework
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+pydantic==2.6.1
+
+# ONNX Runtime with GPU support
+# Note: onnxruntime-gpu includes CUDA and TensorRT execution providers
+onnxruntime-gpu==1.17.0
+
+# Numerical computing
+numpy>=1.24.0
+

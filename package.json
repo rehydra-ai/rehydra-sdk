@@ -54,7 +54,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && cp src/ner/triton.proto dist/ner/triton.proto",
+    "build": "tsc",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -63,8 +63,6 @@
     "benchmark:save": "mkdir -p benchmarks/history && vitest bench --run --outputJson=\"./benchmarks/history/$(date +%Y-%m-%d-%H%M%S).json\"",
     "test:gpu": "npx tsx scripts/test-gpu.ts",
     "test:gpu:compare": "npx tsx scripts/test-gpu.ts --compare",
-    "test:triton": "npx tsx scripts/test-triton.ts",
-    "test:triton:compare": "npx tsx scripts/test-triton.ts --compare",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist",
     "setup:ner": "bash scripts/setup-ner-model.sh --quantize",
@@ -77,10 +75,7 @@
     "pii",
     "privacy",
     "ner",
-    "onnx",
-    "triton",
-    "tensorrt",
-    "gpu"
+    "onnx"
   ],
   "author": "",
   "license": "MIT",
@@ -92,24 +87,12 @@
     "onnxruntime-node": "^1.17.0"
   },
   "peerDependencies": {
-    "@grpc/grpc-js": "^1.9.0",
-    "@grpc/proto-loader": "^0.7.0",
     "better-sqlite3": "^11.0.0",
     "onnxruntime-node": "^1.17.0",
-    "onnxruntime-node-gpu": "^1.17.0",
     "onnxruntime-web": "^1.17.0"
   },
   "peerDependenciesMeta": {
-    "@grpc/grpc-js": {
-      "optional": true
-    },
-    "@grpc/proto-loader": {
-      "optional": true
-    },
     "onnxruntime-node": {
-      "optional": true
-    },
-    "onnxruntime-node-gpu": {
       "optional": true
     },
     "onnxruntime-web": {
