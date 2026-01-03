@@ -30,7 +30,7 @@ export interface OrtSessionOptions {
    * Execution providers in priority order.
    * - For onnxruntime-web: ['webgpu', 'wasm'] or ['wasm']
    * - For onnxruntime-node: usually not needed (uses CPU by default)
-   * - With custom builds: ['coreml'], ['cuda'], etc.
+   * - With custom builds: ['coreml'], etc.
    */
   executionProviders?: Array<string | { name: string; [key: string]: unknown }>;
   /** Graph optimization level */
@@ -137,10 +137,12 @@ async function loadOnnxWeb(): Promise<OrtRuntime> {
 
 /**
  * Loads the appropriate ONNX runtime
+ * @param preferredRuntime - Force 'node' or 'web' runtime
  */
 export async function loadRuntime(
   preferredRuntime?: "node" | "web"
 ): Promise<OrtRuntime> {
+  // If runtime is already loaded, return it
   if (_runtime !== null) {
     return _runtime;
   }
@@ -149,7 +151,7 @@ export async function loadRuntime(
 
   try {
     if (runtimeType === "node") {
-      // Dynamic import for onnxruntime-node
+      // Load standard CPU runtime (works with Bun)
       const ort = (await import("onnxruntime-node")) as OrtRuntime;
       _runtime = ort;
       _runtimeType = "node";

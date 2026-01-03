@@ -338,17 +338,6 @@ export async function loadVocabFromFile(filePath: string): Promise<Map<string, n
 }
 
 /**
- * Loads vocabulary from content string (for when content is already available)
- */
-export function loadVocabFromContent(content: string, format: 'json' | 'txt' = 'json'): Map<string, number> {
-  if (format === 'json' || content.trim().startsWith('{')) {
-    return parseHFTokenizerJson(content);
-  } else {
-    return parseVocab(content);
-  }
-}
-
-/**
  * Parses HuggingFace tokenizer.json format
  */
 export function parseHFTokenizerJson(content: string): Map<string, number> {

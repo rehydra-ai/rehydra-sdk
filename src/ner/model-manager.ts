@@ -449,23 +449,3 @@ export async function listDownloadedModels(): Promise<
 export function getModelInfo(mode: "standard" | "quantized"): ModelInfo {
   return MODEL_REGISTRY[mode];
 }
-
-/**
- * Reads a model file as ArrayBuffer (for onnxruntime)
- */
-export async function readModelFile(path: string): Promise<ArrayBuffer> {
-  const storage = await getStorage();
-  const data = await storage.readFile(path);
-  return data.buffer.slice(
-    data.byteOffset,
-    data.byteOffset + data.byteLength
-  ) as ArrayBuffer;
-}
-
-/**
- * Reads a text file from storage
- */
-export async function readTextFile(path: string): Promise<string> {
-  const storage = await getStorage();
-  return storage.readTextFile(path);
-}

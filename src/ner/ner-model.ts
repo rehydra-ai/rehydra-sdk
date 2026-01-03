@@ -89,12 +89,11 @@ function buildSessionOptions(
   };
 
   // Add execution providers based on environment
-  // Note: For Node.js, CPU is fastest for quantized models
-  // Users can override with sessionOptions.executionProviders = ['coreml', 'cpu'] if needed
   if (runtimeType === "web") {
     // WebGPU (if available) with WASM fallback for browsers
     defaults.executionProviders = ["webgpu", "wasm"];
   }
+  // For Node.js, no explicit execution providers needed (defaults to CPU)
 
   // Merge with custom options (custom options override defaults)
   return { ...defaults, ...customOptions };
