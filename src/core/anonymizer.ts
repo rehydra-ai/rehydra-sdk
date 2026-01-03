@@ -23,6 +23,7 @@ import {
   type INERModel,
   NERModelStub,
   createNERModel,
+  createInferenceServerNERModel,
   DEFAULT_LABEL_MAP,
   type OrtSessionOptions,
   type DeviceType,
@@ -173,6 +174,26 @@ export interface NERConfig {
    * TensorRT engines are GPU-specific; cached engines speed up subsequent loads
    */
   tensorrtCachePath?: string;
+
+  /**
+   * Inference backend: 'onnx' (default) or 'inference-server'
+   * - 'onnx': Local ONNX Runtime inference (CPU or GPU)
+   * - 'inference-server': Remote GPU inference via HTTP (enterprise deployment)
+   * @default 'onnx'
+   */
+  backend?: "onnx" | "inference-server";
+
+  /**
+   * Inference server URL (required when backend is 'inference-server')
+   * @example 'http://localhost:8080'
+   */
+  inferenceServerUrl?: string;
+
+  /**
+   * Inference server request timeout in milliseconds (default: 30000)
+   * Only used when backend is 'inference-server'
+   */
+  inferenceServerTimeout?: number;
 }
 
 /**
@@ -289,9 +310,38 @@ export class Anonymizer {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    // Handle NER model setup based on mode
+    // Handle NER model setup based on mode and backend
     if (this.nerConfig.mode === "disabled") {
       this.nerModel = new NERModelStub();
+    } else if (this.nerConfig.backend === "inference-server") {
+      // Inference server backend - use remote GPU inference
+      if (
+        this.nerConfig.inferenceServerUrl === undefined ||
+        this.nerConfig.inferenceServerUrl === ""
+      ) {
+        throw new Error(
+          "NER backend 'inference-server' requires inferenceServerUrl to be set.\n\n" +
+            "Example:\n" +
+            "  createAnonymizer({\n" +
+            "    ner: {\n" +
+            "      mode: 'quantized',\n" +
+            "      backend: 'inference-server',\n" +
+            "      inferenceServerUrl: 'http://localhost:8080',\n" +
+            "    }\n" +
+            "  })"
+        );
+      }
+
+      this.nerModel = createInferenceServerNERModel({
+        serverUrl: this.nerConfig.inferenceServerUrl,
+        timeout: this.nerConfig.inferenceServerTimeout,
+        mode: this.nerConfig.mode,
+        vocabPath: this.nerConfig.vocabPath,
+        modelVersion: this.modelVersion,
+        autoDownload: this.nerConfig.autoDownload ?? true,
+        onDownloadProgress: this.nerConfig.onDownloadProgress,
+        onStatus: this.nerConfig.onStatus,
+      });
     } else if (this.nerConfig.mode === "custom") {
       // Custom ONNX model paths
       if (

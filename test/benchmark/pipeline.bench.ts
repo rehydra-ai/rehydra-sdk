@@ -38,8 +38,14 @@ import {
   createAnonymizer,
   type Anonymizer,
 } from '../../src/core/anonymizer.js';
+import {
+  InferenceServerClient,
+} from '../../src/ner/inference-server-client.js';
 import type { Token } from '../../src/ner/tokenizer.js';
 import type { RawPIIMap } from '../../src/pipeline/tagger.js';
+
+// Inference server configuration
+const INFERENCE_SERVER_URL = process.env.INFERENCE_SERVER_URL || 'http://localhost:8080';
 
 // =============================================================================
 // Test Data
@@ -665,6 +671,84 @@ describe('Full Anonymizer - With NER (quantized model)', () => {
   bench('anonymize (with NER) - entity-dense text', async () => {
     const anonymizer = await getNERAnonymizer();
     if (!anonymizer) throw new Error(_nerAnonymizerError ?? 'NER anonymizer not available');
+    await anonymizer.anonymize(ENTITY_DENSE_TEXT);
+  });
+});
+
+// =============================================================================
+// GPU Inference Server Benchmarks
+// Requires the inference server to be running:
+//   cd docker/inference-server && sudo docker-compose up -d
+// =============================================================================
+
+// Check if inference server is available
+let _inferenceServerAvailable: boolean | null = null;
+let _inferenceServerError: string | null = null;
+let _gpuAnonymizer: Anonymizer | null = null;
+
+async function isInferenceServerAvailable(): Promise<boolean> {
+  if (_inferenceServerAvailable !== null) return _inferenceServerAvailable;
+  
+  try {
+    const client = new InferenceServerClient({ url: INFERENCE_SERVER_URL, timeout: 2000 });
+    const health = await client.health();
+    _inferenceServerAvailable = health.model_loaded;
+    if (!_inferenceServerAvailable) {
+      _inferenceServerError = 'Inference server model not loaded';
+    }
+    return _inferenceServerAvailable;
+  } catch (e) {
+    _inferenceServerAvailable = false;
+    _inferenceServerError = `Inference server not available at ${INFERENCE_SERVER_URL}`;
+    return false;
+  }
+}
+
+async function getGPUAnonymizer(): Promise<Anonymizer | null> {
+  if (_gpuAnonymizer) return _gpuAnonymizer;
+  
+  const available = await isInferenceServerAvailable();
+  if (!available) return null;
+  
+  try {
+    _gpuAnonymizer = createAnonymizer({
+      ner: {
+        mode: 'quantized',
+        backend: 'inference-server',
+        inferenceServerUrl: INFERENCE_SERVER_URL,
+        autoDownload: false,
+      },
+    });
+    await _gpuAnonymizer.initialize();
+    return _gpuAnonymizer;
+  } catch (e) {
+    _inferenceServerError = String(e);
+    return null;
+  }
+}
+
+describe('Full Anonymizer - GPU Inference Server', () => {
+  bench('anonymize (GPU) - short text', async () => {
+    const anonymizer = await getGPUAnonymizer();
+    if (!anonymizer) throw new Error(_inferenceServerError ?? 'GPU anonymizer not available');
+    await anonymizer.anonymize(SHORT_TEXT);
+  });
+
+  bench('anonymize (GPU) - medium text', async () => {
+    const anonymizer = await getGPUAnonymizer();
+    if (!anonymizer) throw new Error(_inferenceServerError ?? 'GPU anonymizer not available');
+    await anonymizer.anonymize(MEDIUM_TEXT);
+  });
+
+  bench('anonymize (GPU) - long text', async () => {
+    const anonymizer = await getGPUAnonymizer();
+    if (!anonymizer) throw new Error(_inferenceServerError ?? 'GPU anonymizer not available');
+    await anonymizer.anonymize(LONG_TEXT);
+  });
+
+  bench('anonymize (GPU) - entity-dense text', async () => {
+    const anonymizer = await getGPUAnonymizer();
+    if (!anonymizer) throw new Error(_inferenceServerError ?? 'GPU anonymizer not available');
     await anonymizer.anonymize(ENTITY_DENSE_TEXT);
   });
 });

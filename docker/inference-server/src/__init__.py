@@ -1,2 +1,0 @@
-# Rehydra NER Inference Service
-

@@ -1,28 +1,44 @@
 /**
  * Inference Server Client
- * HTTP client for remote GPU-accelerated NER inference
+ * HTTP client for GPU-accelerated NER inference
  */
 
 /**
- * Configuration for the inference server client
+ * Client configuration
  */
 export interface InferenceServerConfig {
-  /** URL of the inference server (e.g., 'http://localhost:8080') */
+  /** Server URL (e.g., 'http://localhost:8080') */
   url: string;
-  /** Request timeout in milliseconds (default: 30000) */
+  /** Request timeout in ms (default: 30000) */
   timeout?: number;
 }
 
 /**
- * Response from the inference server
+ * Entity match from the server
  */
-interface InferResponse {
-  logits: number[][];
-  shape: number[];
+export interface ServerEntityMatch {
+  /** Entity type (PERSON, ORG, LOCATION, etc.) */
+  type: string;
+  /** Start character offset */
+  start: number;
+  /** End character offset */
+  end: number;
+  /** Confidence (0-1) */
+  confidence: number;
+  /** Matched text */
+  text: string;
 }
 
 /**
- * Health check response
+ * Server response
+ */
+interface PredictResponse {
+  entities: ServerEntityMatch[];
+  processing_time_ms: number;
+}
+
+/**
+ * Health status
  */
 export interface HealthStatus {
   status: string;
@@ -31,21 +47,17 @@ export interface HealthStatus {
 }
 
 /**
- * Client for communicating with the Rehydra NER inference server.
- * 
- * The inference server provides GPU-accelerated NER inference using
- * ONNX Runtime with TensorRT optimization.
+ * Client for the Rehydra NER inference server.
  * 
  * @example
  * ```typescript
  * const client = new InferenceServerClient({ url: 'http://localhost:8080' });
  * 
- * // Check health
- * const health = await client.health();
- * console.log(`Provider: ${health.provider}`);
+ * await client.waitUntilReady();
  * 
- * // Run inference
- * const logits = await client.infer(inputIds, attentionMask);
+ * const result = await client.predict('John Smith works at Acme Corp');
+ * console.log(result.entities);
+ * // [{ type: 'PERSON', text: 'John Smith', ... }, { type: 'ORG', text: 'Acme Corp', ... }]
  * ```
  */
 export class InferenceServerClient {
@@ -53,52 +65,47 @@ export class InferenceServerClient {
   private readonly timeout: number;
 
   constructor(config: InferenceServerConfig) {
-    // Normalize URL (remove trailing slash)
     this.url = config.url.replace(/\/$/, '');
     this.timeout = config.timeout ?? 30000;
   }
 
   /**
-   * Run NER inference on tokenized input
+   * Run NER prediction on text
    * 
-   * @param inputIds - Array of token IDs
-   * @param attentionMask - Array of attention mask values
-   * @returns Float32Array of logits (flattened [seq_length * num_labels])
+   * @param text - Text to analyze
+   * @param confidenceThreshold - Minimum confidence (0-1, default: 0.5)
    */
-  async infer(inputIds: number[], attentionMask: number[]): Promise<Float32Array> {
+  async predict(
+    text: string,
+    confidenceThreshold: number = 0.5
+  ): Promise<{ entities: ServerEntityMatch[]; processingTimeMs: number }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(`${this.url}/v1/infer`, {
+      const response = await fetch(`${this.url}/v1/predict`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          input_ids: inputIds,
-          attention_mask: attentionMask,
+          text,
+          confidence_threshold: confidenceThreshold,
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Inference server error (${response.status}): ${errorText}`);
+        throw new Error(`Server error (${response.status}): ${errorText}`);
       }
 
-      const data = await response.json() as InferResponse;
-      
-      // Flatten the 2D logits array to match local ONNX Runtime output format
-      const flatLogits: number[] = [];
-      for (const row of data.logits) {
-        flatLogits.push(...row);
-      }
-      
-      return new Float32Array(flatLogits);
+      const data = await response.json() as PredictResponse;
+      return {
+        entities: data.entities,
+        processingTimeMs: data.processing_time_ms,
+      };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Inference server request timed out after ${this.timeout}ms`);
+        throw new Error(`Request timed out after ${this.timeout}ms`);
       }
       throw error;
     } finally {
@@ -107,9 +114,7 @@ export class InferenceServerClient {
   }
 
   /**
-   * Check the health of the inference server
-   * 
-   * @returns Health status including active provider
+   * Check server health
    */
   async health(): Promise<HealthStatus> {
     const controller = new AbortController();
@@ -137,11 +142,10 @@ export class InferenceServerClient {
   }
 
   /**
-   * Wait for the inference server to become ready
+   * Wait for server to be ready
    * 
-   * @param maxWaitMs - Maximum time to wait in milliseconds (default: 300000 = 5 minutes)
-   * @param pollIntervalMs - Interval between health checks (default: 2000)
-   * @returns Health status when ready
+   * @param maxWaitMs - Max wait time (default: 300000 = 5 min)
+   * @param pollIntervalMs - Poll interval (default: 2000)
    */
   async waitUntilReady(maxWaitMs = 300000, pollIntervalMs = 2000): Promise<HealthStatus> {
     const startTime = Date.now();
@@ -153,23 +157,18 @@ export class InferenceServerClient {
           return health;
         }
       } catch {
-        // Server not ready yet, continue polling
+        // Not ready yet
       }
-      
       await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
     }
     
-    throw new Error(`Inference server did not become ready within ${maxWaitMs}ms`);
+    throw new Error(`Server not ready within ${maxWaitMs}ms`);
   }
 }
 
 /**
- * Create an inference server client
- * 
- * @param config - Client configuration
- * @returns Configured client instance
+ * Create client instance
  */
 export function createInferenceServerClient(config: InferenceServerConfig): InferenceServerClient {
   return new InferenceServerClient(config);
 }
-
