@@ -61,6 +61,8 @@
     "test:browser-bundle": "bash scripts/test-browser-bundle.sh",
     "benchmark": "vitest bench",
     "benchmark:save": "mkdir -p benchmarks/history && vitest bench --run --outputJson=\"./benchmarks/history/$(date +%Y-%m-%d-%H%M%S).json\"",
+    "test:gpu": "npx tsx scripts/test-gpu.ts",
+    "test:gpu:compare": "npx tsx scripts/test-gpu.ts --compare",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist",
     "setup:ner": "bash scripts/setup-ner-model.sh --quantize",
