@@ -1,4 +1,6 @@
+import { createReadStream, createWriteStream } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import type { Readable, Writable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { CLIError } from "./errors.js";
 
@@ -40,4 +42,21 @@ export async function writeOutput(
   } else {
     process.stdout.write(data);
   }
+}
+
+/**
+ * Get a readable stream for a file path.
+ */
+export function getInputStream(filePath: string): Readable {
+  return createReadStream(filePath, { encoding: "utf-8" });
+}
+
+/**
+ * Get a writable stream for output (file or stdout).
+ */
+export function getOutputStream(filePath?: string): Writable {
+  if (filePath !== undefined) {
+    return createWriteStream(filePath, { encoding: "utf-8" });
+  }
+  return process.stdout;
 }
