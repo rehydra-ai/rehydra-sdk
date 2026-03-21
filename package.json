@@ -1,6 +1,6 @@
 {
   "name": "rehydra",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "On-device PII anonymization module for high-privacy AI workflows",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -58,6 +58,12 @@
       "node": {
         "types": "./dist/proxy/index.d.ts",
         "default": "./dist/proxy/index.js"
+      }
+    },
+    "./cli": {
+      "node": {
+        "types": "./dist/cli/main.d.ts",
+        "default": "./dist/cli/main.js"
       }
     }
   },

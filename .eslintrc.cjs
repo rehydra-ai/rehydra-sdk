@@ -20,5 +20,13 @@ module.exports = {
     'no-console': 'warn',
   },
   ignorePatterns: ['dist', 'node_modules', '*.config.ts', '*.config.js'],
+  overrides: [
+    {
+      files: ['src/cli/**/*.ts'],
+      rules: {
+        'no-console': 'off',
+      },
+    },
+  ],
 };
 
