@@ -179,6 +179,162 @@ describe("AnthropicProvider", () => {
     });
   });
 
+  describe("null/non-object guards", () => {
+    it("extractRequestText returns [] for null", () => {
+      expect(provider.extractRequestText(null)).toEqual([]);
+    });
+
+    it("extractRequestText returns [] for undefined", () => {
+      expect(provider.extractRequestText(undefined)).toEqual([]);
+    });
+
+    it("extractRequestText returns [] for a non-object", () => {
+      expect(provider.extractRequestText("string")).toEqual([]);
+      expect(provider.extractRequestText(42)).toEqual([]);
+    });
+
+    it("rebuildRequestBody returns null for null", () => {
+      expect(provider.rebuildRequestBody(null, [])).toBeNull();
+    });
+
+    it("rebuildRequestBody returns undefined for undefined", () => {
+      expect(provider.rebuildRequestBody(undefined, [])).toBeUndefined();
+    });
+
+    it("rebuildRequestBody returns the value for a non-object", () => {
+      expect(provider.rebuildRequestBody("string", [])).toBe("string");
+    });
+
+    it("extractResponseText returns [] for null", () => {
+      expect(provider.extractResponseText(null)).toEqual([]);
+    });
+
+    it("extractResponseText returns [] for undefined", () => {
+      expect(provider.extractResponseText(undefined)).toEqual([]);
+    });
+
+    it("extractResponseText returns [] for a non-object", () => {
+      expect(provider.extractResponseText(123)).toEqual([]);
+    });
+
+    it("rebuildResponseBody returns null for null", () => {
+      expect(provider.rebuildResponseBody(null, [])).toBeNull();
+    });
+
+    it("rebuildResponseBody returns undefined for undefined", () => {
+      expect(provider.rebuildResponseBody(undefined, [])).toBeUndefined();
+    });
+
+    it("rebuildResponseBody returns the value for a non-object", () => {
+      expect(provider.rebuildResponseBody("x", [])).toBe("x");
+    });
+
+    it("rebuildResponseBody returns body when content is not an array", () => {
+      const body = { content: "not-an-array" };
+      const result = provider.rebuildResponseBody(body, ["ignored"]) as any;
+      expect(result.content).toBe("not-an-array");
+    });
+
+    it("rebuildResponseBody returns body when content is missing", () => {
+      const body = { id: "msg_1" };
+      const result = provider.rebuildResponseBody(body, ["ignored"]) as any;
+      expect(result.id).toBe("msg_1");
+      expect(result.content).toBeUndefined();
+    });
+  });
+
+  describe("extractSSEToolCallDelta", () => {
+    it("should return partial_json for input_json_delta", () => {
+      const data = {
+        type: "content_block_delta",
+        delta: { type: "input_json_delta", partial_json: '{"key":' },
+      };
+
+      expect(provider.extractSSEToolCallDelta(data)).toBe('{"key":');
+    });
+
+    it("should return null for text_delta events", () => {
+      const data = {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "Hello" },
+      };
+
+      expect(provider.extractSSEToolCallDelta(data)).toBeNull();
+    });
+
+    it("should return null for non-delta events", () => {
+      expect(
+        provider.extractSSEToolCallDelta({ type: "message_start" }),
+      ).toBeNull();
+
+      expect(
+        provider.extractSSEToolCallDelta({ type: "content_block_start" }),
+      ).toBeNull();
+    });
+
+    it("should return null when partial_json is not a string", () => {
+      const data = {
+        type: "content_block_delta",
+        delta: { type: "input_json_delta", partial_json: 42 },
+      };
+
+      expect(provider.extractSSEToolCallDelta(data)).toBeNull();
+    });
+  });
+
+  describe("rebuildSSEToolCallDelta", () => {
+    it("should set partial_json on the delta", () => {
+      const data = {
+        type: "content_block_delta",
+        delta: { type: "input_json_delta", partial_json: '{"key":' },
+      };
+
+      const result = provider.rebuildSSEToolCallDelta(
+        data,
+        '{"anonymized_key":',
+      ) as any;
+
+      expect(result.delta.partial_json).toBe('{"anonymized_key":');
+      expect(result.delta.type).toBe("input_json_delta");
+    });
+
+    it("should not mutate the original event", () => {
+      const data = {
+        type: "content_block_delta",
+        delta: { type: "input_json_delta", partial_json: "original" },
+      };
+
+      provider.rebuildSSEToolCallDelta(data, "replaced");
+      expect((data.delta as any).partial_json).toBe("original");
+    });
+  });
+
+  describe("isSSEToolCallDone", () => {
+    it("should return true for content_block_stop events", () => {
+      expect(
+        provider.isSSEToolCallDone({ type: "content_block_stop" }),
+      ).toBe(true);
+    });
+
+    it("should return false for content_block_delta events", () => {
+      expect(
+        provider.isSSEToolCallDone({ type: "content_block_delta" }),
+      ).toBe(false);
+    });
+
+    it("should return false for message_stop events", () => {
+      expect(
+        provider.isSSEToolCallDone({ type: "message_stop" }),
+      ).toBe(false);
+    });
+
+    it("should return false for message_start events", () => {
+      expect(
+        provider.isSSEToolCallDone({ type: "message_start" }),
+      ).toBe(false);
+    });
+  });
+
   describe("isStreamingRequest", () => {
     it("should detect streaming requests", () => {
       expect(provider.isStreamingRequest({ stream: true })).toBe(true);

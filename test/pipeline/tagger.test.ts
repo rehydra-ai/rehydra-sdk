@@ -570,6 +570,36 @@ describe("Tagger", () => {
       });
     });
 
+    describe("JSON-escaped quotes", () => {
+      it("should extract tag with single backslash-quote", () => {
+        // Single level of JSON escaping: \" around attribute values
+        const text = 'Hello <PII type=\\"PERSON\\" id=\\"1\\"/> world';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+
+      it("should extract tag with double backslash-quote", () => {
+        // Double level of JSON escaping: \\" (3 chars: \\")
+        const text = 'Hello <PII type=\\\\"PERSON\\\\" id=\\\\"1\\\\"/> world';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+
+      it("should extract tag with triple backslash-quote", () => {
+        // Triple level of JSON escaping: \\\" (4 chars: \\\")
+        const text =
+          'Hello <PII type=\\\\\\"PERSON\\\\\\" id=\\\\\\"1\\\\\\"/> world';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+    });
+
     describe("extractTagsStrict", () => {
       it("should only match exact canonical format", () => {
         const text = 'Hello <PII type="PERSON" id="1"/> world';
@@ -898,6 +928,68 @@ describe("Tagger", () => {
         const result = rehydrate(mangledText, piiMap);
 
         expect(result).toBe("Nothing, just hanging with my mom and Sandra is:");
+      });
+    });
+
+    describe("JSON context escaping", () => {
+      it("should NOT JSON-escape replacement when tag has no backslashes", () => {
+        const piiMap: RawPIIMap = new Map([
+          [createPIIMapKey(PIIType.PERSON, 1), 'John "Jack" Doe'],
+        ]);
+        // Normal tag (no backslashes) — replacement should be used as-is
+        const text = 'Hello <PII type="PERSON" id="1"/> world';
+
+        const result = rehydrate(text, piiMap);
+
+        expect(result).toBe('Hello John "Jack" Doe world');
+      });
+
+      it("should use replacement as-is when original is alphanumeric even in JSON context", () => {
+        const piiMap: RawPIIMap = new Map([
+          [createPIIMapKey(PIIType.PERSON, 1), "JohnDoe"],
+        ]);
+        // JSON-escaped tag with backslash-quotes
+        const text = 'Hello <PII type=\\"PERSON\\" id=\\"1\\"/> world';
+
+        const result = rehydrate(text, piiMap);
+
+        expect(result).toBe("Hello JohnDoe world");
+      });
+
+      it('should escape double quotes in replacement when tag is JSON-escaped', () => {
+        const piiMap: RawPIIMap = new Map([
+          [createPIIMapKey(PIIType.PERSON, 1), 'John "Jack" Doe'],
+        ]);
+        // JSON-escaped tag — replacement should have " escaped to \"
+        const text = 'Hello <PII type=\\"PERSON\\" id=\\"1\\"/> world';
+
+        const result = rehydrate(text, piiMap);
+
+        expect(result).toBe('Hello John \\"Jack\\" Doe world');
+      });
+
+      it("should escape newlines in replacement when tag is JSON-escaped", () => {
+        const piiMap: RawPIIMap = new Map([
+          [createPIIMapKey(PIIType.PERSON, 1), "John\nDoe"],
+        ]);
+        // JSON-escaped tag — replacement should have \n escaped to \\n
+        const text = 'Hello <PII type=\\"PERSON\\" id=\\"1\\"/> world';
+
+        const result = rehydrate(text, piiMap);
+
+        expect(result).toBe("Hello John\\nDoe world");
+      });
+
+      it("should escape backslashes in replacement when tag is JSON-escaped", () => {
+        const piiMap: RawPIIMap = new Map([
+          [createPIIMapKey(PIIType.PERSON, 1), "John\\Doe"],
+        ]);
+        // JSON-escaped tag — replacement should have \ escaped to \\
+        const text = 'Hello <PII type=\\"PERSON\\" id=\\"1\\"/> world';
+
+        const result = rehydrate(text, piiMap);
+
+        expect(result).toBe("Hello John\\\\Doe world");
       });
     });
   });
