@@ -2,9 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const CLI = join(import.meta.dirname, "../../../dist/cli/bin.js");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CLI = join(__dirname, "../../../dist/cli/bin.js");
 
 interface ExecResult {
   stdout: string;
