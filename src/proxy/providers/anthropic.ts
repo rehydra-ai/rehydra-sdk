@@ -158,6 +158,30 @@ export class AnthropicProvider implements LLMContentProvider {
     return event;
   }
 
+  extractSSEToolCallDelta(data: unknown): string | null {
+    // Anthropic tool use: content_block_delta with input_json_delta
+    const event = data as AnthropicStreamEvent;
+    if (event.type === "content_block_delta" && event.delta?.type === "input_json_delta") {
+      const partial = (event.delta as Record<string, unknown>).partial_json;
+      return typeof partial === "string" ? partial : null;
+    }
+    return null;
+  }
+
+  rebuildSSEToolCallDelta(data: unknown, rehydratedText: string): unknown {
+    const event = structuredClone(data) as AnthropicStreamEvent;
+    if (event.delta !== undefined) {
+      (event.delta as Record<string, unknown>).partial_json = rehydratedText;
+    }
+    return event;
+  }
+
+  isSSEToolCallDone(data: unknown): boolean {
+    // content_block_stop signals end of a content block (including tool use)
+    const event = data as AnthropicStreamEvent;
+    return event.type === "content_block_stop";
+  }
+
   isStreamingRequest(body: unknown): boolean {
     const req = body as AnthropicMessagesRequest;
     return req.stream === true;

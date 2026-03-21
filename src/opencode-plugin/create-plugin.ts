@@ -354,13 +354,11 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                 const delta = provider.extractSSEDelta(parsed);
 
                 if (delta === null) {
-                  const eventObj = parsed as Record<string, unknown>;
-                  const eventType = typeof eventObj.type === "string" ? eventObj.type : "";
-
-                  // Function call argument deltas: buffer + rehydrate with
+                  // Tool call argument deltas: buffer + rehydrate with
                   // tag-splitting awareness (same logic as text deltas)
-                  if (eventType === "response.function_call_arguments.delta" && typeof eventObj.delta === "string") {
-                    const fullText = fnCallArgBuffer + eventObj.delta;
+                  const toolDelta = provider.extractSSEToolCallDelta(parsed);
+                  if (toolDelta !== null) {
+                    const fullText = fnCallArgBuffer + toolDelta;
                     const incompleteTagIdx = fullText.lastIndexOf("<PII");
                     const lastCloseIdx = fullText.lastIndexOf("/>");
 
@@ -375,26 +373,24 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
 
                     if (textToEmit.length > 0) {
                       const rehydrated = rehydrate(textToEmit, piiMap);
-                      output.push(`data: ${JSON.stringify({ ...eventObj, delta: rehydrated })}`);
+                      output.push(`data: ${JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, rehydrated))}`);
                     } else {
-                      output.push(`data: ${JSON.stringify({ ...eventObj, delta: "" })}`);
+                      output.push(`data: ${JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, ""))}`);
                     }
                     continue;
                   }
 
-                  // Function call arguments done: flush buffer + rehydrate complete args
-                  if (eventType === "response.function_call_arguments.done") {
-                    const rebuilt = { ...eventObj };
+                  // Tool call done: flush buffer + deep-rehydrate the done event
+                  if (provider.isSSEToolCallDone(parsed)) {
                     if (fnCallArgBuffer.length > 0) {
                       const flushed = rehydrate(fnCallArgBuffer, piiMap);
                       fnCallArgBuffer = "";
-                      // Emit buffered content as a preceding delta
-                      output.push(`data: ${JSON.stringify({ type: "response.function_call_arguments.delta", item_id: eventObj.item_id, output_index: eventObj.output_index, delta: flushed })}`);
+                      // Emit buffered content as a preceding tool call delta
+                      output.push(`data: ${JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, flushed))}`);
                     }
-                    if (typeof rebuilt.arguments === "string") {
-                      rebuilt.arguments = rehydrate(rebuilt.arguments, piiMap);
-                    }
-                    output.push(`data: ${JSON.stringify(rebuilt)}`);
+                    // Deep-rehydrate the done event (handles complete arguments fields)
+                    const rehydratedDone = deepRehydrateValue(parsed, piiMap);
+                    output.push(`data: ${JSON.stringify(rehydratedDone)}`);
                     continue;
                   }
 

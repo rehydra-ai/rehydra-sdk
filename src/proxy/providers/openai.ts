@@ -362,6 +362,61 @@ export class OpenAIProvider implements LLMContentProvider {
     return chunk;
   }
 
+  extractSSEToolCallDelta(data: unknown): string | null {
+    if (data === null || data === undefined || typeof data !== "object") return null;
+    const obj = data as Record<string, unknown>;
+
+    // Responses API: response.function_call_arguments.delta
+    if (obj.type === "response.function_call_arguments.delta" && typeof obj.delta === "string") {
+      return obj.delta;
+    }
+
+    // Chat Completions API: choices[0].delta.tool_calls[0].function.arguments
+    const chunk = data as OpenAIStreamChunk;
+    const toolCalls = chunk.choices?.[0]?.delta?.tool_calls as
+      Array<{ function?: { arguments?: string } }> | undefined;
+    if (toolCalls !== undefined && toolCalls.length > 0) {
+      const args = toolCalls[0]?.function?.arguments;
+      if (typeof args === "string") return args;
+    }
+
+    return null;
+  }
+
+  rebuildSSEToolCallDelta(data: unknown, rehydratedText: string): unknown {
+    if (data === null || data === undefined || typeof data !== "object") return data;
+    const obj = data as Record<string, unknown>;
+
+    // Responses API
+    if (obj.type === "response.function_call_arguments.delta") {
+      return { ...obj, delta: rehydratedText };
+    }
+
+    // Chat Completions API
+    const chunk = structuredClone(data) as OpenAIStreamChunk;
+    const toolCalls = chunk.choices?.[0]?.delta?.tool_calls as
+      Array<{ function?: { arguments?: string } }> | undefined;
+    if (toolCalls !== undefined && toolCalls.length > 0 && toolCalls[0]?.function !== undefined) {
+      toolCalls[0].function.arguments = rehydratedText;
+    }
+    return chunk;
+  }
+
+  isSSEToolCallDone(data: unknown): boolean {
+    if (data === null || data === undefined || typeof data !== "object") return false;
+    const obj = data as Record<string, unknown>;
+
+    // Responses API: response.function_call_arguments.done
+    if (obj.type === "response.function_call_arguments.done") return true;
+
+    // Chat Completions API: finish_reason === "tool_calls"
+    const chunk = data as OpenAIStreamChunk;
+    const finishReason = chunk.choices?.[0]?.finish_reason;
+    if (finishReason === "tool_calls") return true;
+
+    return false;
+  }
+
   isStreamingRequest(body: unknown): boolean {
     if (body === null || body === undefined || typeof body !== "object") return false;
     return (body as { stream?: boolean }).stream === true;

@@ -32,6 +32,15 @@ export interface LLMContentProvider {
   /** Rebuild an SSE data payload with rehydrated text */
   rebuildSSEDelta(data: unknown, rehydratedText: string): unknown;
 
+  /** Extract tool call argument delta text (returns null if not a tool call delta) */
+  extractSSEToolCallDelta(data: unknown): string | null;
+
+  /** Rebuild an SSE tool call argument delta with rehydrated text */
+  rebuildSSEToolCallDelta(data: unknown, rehydratedText: string): unknown;
+
+  /** Check if an SSE event signals tool call arguments are complete (triggers buffer flush) */
+  isSSEToolCallDone(data: unknown): boolean;
+
   /** Check if the request body indicates a streaming response is expected */
   isStreamingRequest(body: unknown): boolean;
 }
