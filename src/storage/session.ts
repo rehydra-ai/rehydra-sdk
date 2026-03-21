@@ -16,7 +16,7 @@ import type {
   PIIStorageProvider,
   StoredPIIMap,
 } from "./types.js";
-import { AnonymizerStream } from "../streaming/anonymizer-stream.js";
+import type { AnonymizerStream } from "../streaming/anonymizer-stream.js";
 import type { StreamConfig } from "../streaming/types.js";
 
 /**
@@ -168,6 +168,9 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
   }
 
   async createStream(config?: Partial<StreamConfig>): Promise<AnonymizerStream> {
+    // Dynamic import to avoid pulling node:stream into browser bundles
+    const { AnonymizerStream } = await import("../streaming/anonymizer-stream.js");
+
     // Load existing PII map to seed the stream for ID continuity
     let initialPiiMap: RawPIIMap | undefined;
     const existing = await this.storage.load(this.sessionId);
