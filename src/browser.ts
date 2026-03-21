@@ -159,7 +159,7 @@ import {
 } from "./core/index.js";
 
 // Import session implementation
-import { AnonymizerSessionImpl } from "./storage/session.js";
+import { AnonymizerSessionImpl } from "./storage/session-base.js";
 
 // Re-export types from core
 export type { AnonymizerConfig, NERConfig };

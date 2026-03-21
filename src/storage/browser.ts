@@ -22,6 +22,6 @@ export type { EncryptedPIIMap } from "../types/index.js";
 export { InMemoryPIIStorageProvider } from "./in-memory.js";
 export { IndexedDBPIIStorageProvider } from "./indexeddb.js";
 
-// Export session implementation
-export { AnonymizerSessionImpl } from "./session.js";
+// Export session implementation (browser-safe, without streaming support)
+export { AnonymizerSessionImpl } from "./session-base.js";
 
