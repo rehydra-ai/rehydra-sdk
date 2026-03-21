@@ -166,4 +166,92 @@ describe("AnonymizerStream", () => {
 
     expect(output).toBe(input);
   });
+
+  it("should handle tiny chunks with small highWaterMark", async () => {
+    const stream = await createAnonymizerStream({
+      buffer: { minBufferSize: 10, overlapChars: 0 },
+      streamOptions: { highWaterMark: 16 },
+    });
+
+    const input = "Contact john@example.com for details. ";
+    const output = await pipeString(input, stream);
+
+    expect(output).toContain('<PII type="EMAIL"');
+    expect(output).not.toContain("john@example.com");
+  });
+
+  it("should maintain consistent IDs for same email across chunks", async () => {
+    const stream = await createAnonymizerStream({
+      buffer: { minBufferSize: 10, overlapChars: 0 },
+      keyProvider: new InMemoryKeyProvider(),
+    });
+
+    const chunks = [
+      "First mention of john@example.com here. ",
+      "Second mention of john@example.com again. ",
+    ];
+
+    const readable = Readable.from(chunks);
+    readable.pipe(stream);
+    const output = await collectStream(stream);
+
+    // Both occurrences should use the same PII tag ID
+    const matches = output.match(/<PII type="EMAIL" id="\d+"\/>/g);
+    expect(matches).not.toBeNull();
+    if (matches !== null && matches.length >= 2) {
+      expect(matches[0]).toBe(matches[1]);
+    }
+  });
+
+  it("should handle backpressure with slow consumer", async () => {
+    const stream = await createAnonymizerStream({
+      buffer: { minBufferSize: 10, overlapChars: 0 },
+      streamOptions: { highWaterMark: 1 },
+    });
+
+    const input =
+      "Contact john@example.com for details. " +
+      "Also try jane@example.com for help. " +
+      "Or reach support@example.com anytime. ";
+
+    const readable = Readable.from([input]);
+    readable.pipe(stream);
+
+    // Simulate slow consumer: read with delays
+    const chunks: string[] = [];
+    for await (const chunk of stream) {
+      chunks.push(typeof chunk === "string" ? chunk : chunk.toString());
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('<PII type="EMAIL"');
+    expect(output).not.toContain("john@example.com");
+  });
+
+  it("should create stream from session via createStream()", async () => {
+    const { Anonymizer } = await import("../../src/index.js");
+
+    const storage = new InMemoryPIIStorageProvider();
+    const keyProvider = new InMemoryKeyProvider();
+
+    const anonymizer = new Anonymizer({
+      piiStorageProvider: storage,
+      keyProvider,
+    });
+
+    const session = anonymizer.session("stream-session");
+    const stream = await session.createStream!({
+      buffer: { minBufferSize: 10, overlapChars: 0 },
+    });
+
+    const input = "Contact john@example.com for details. ";
+    const output = await pipeString(input, stream);
+
+    expect(output).toContain('<PII type="EMAIL"');
+
+    // Session storage should have the PII map
+    const exists = await storage.exists("stream-session");
+    expect(exists).toBe(true);
+  });
 });

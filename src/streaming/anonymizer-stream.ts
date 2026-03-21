@@ -41,6 +41,9 @@ export class AnonymizerStream extends Transform {
   private readonly onChunkCallback?: (event: StreamChunkEvent) => void;
   private readonly onFinishCallback?: (event: StreamFinishEvent) => void;
 
+  private readonly saveIntervalMs: number | null;
+  private lastSaveTime = 0;
+
   private totalEntities = 0;
   private startTime = 0;
   private chunkCount = 0;
@@ -61,6 +64,7 @@ export class AnonymizerStream extends Transform {
     this.sessionId = config.sessionId ?? null;
     this.onChunkCallback = config.onChunk;
     this.onFinishCallback = config.onFinish;
+    this.saveIntervalMs = config.saveIntervalMs ?? null;
 
     this.sentenceBuffer = new SentenceBuffer(anonymizer, config.buffer, {
       keyProvider: this.keyProvider ?? undefined,
@@ -132,6 +136,33 @@ export class AnonymizerStream extends Transform {
         processingTimeMs: performance.now() - chunkStart,
       });
     }
+
+    // Debounced save: save PII map at most once per saveIntervalMs
+    if (this.saveIntervalMs !== null && results.length > 0) {
+      await this.maybeSaveToStorage();
+    }
+  }
+
+  private async maybeSaveToStorage(): Promise<void> {
+    if (this.sessionId === null || this.piiStorageProvider === null || this.keyProvider === null) {
+      return;
+    }
+
+    const now = performance.now();
+    if (now - this.lastSaveTime < (this.saveIntervalMs ?? Infinity)) {
+      return;
+    }
+
+    const piiMap = this.sentenceBuffer.getCumulativePiiMap();
+    if (piiMap.size === 0) return;
+
+    const key = await this.keyProvider.getKey();
+    const encrypted = await encryptPIIMap(piiMap, key);
+    await this.piiStorageProvider.save(this.sessionId, encrypted, {
+      createdAt: Date.now(),
+      entityCounts: this.buildEntityCounts(),
+    });
+    this.lastSaveTime = now;
   }
 
   private async processFlush(): Promise<void> {

@@ -37,6 +37,14 @@ export interface StreamConfig {
   /** Key provider (required if sessionId is set) */
   keyProvider?: KeyProvider;
 
+  /**
+   * Interval in milliseconds for saving the PII map to storage during streaming.
+   * When set, saves at most once per interval (in addition to the final save on flush).
+   * Useful for crash recovery on long streams.
+   * @default undefined (only save on stream end)
+   */
+  saveIntervalMs?: number;
+
   /** Node.js Transform stream options (highWaterMark, etc.) */
   streamOptions?: TransformOptions;
 

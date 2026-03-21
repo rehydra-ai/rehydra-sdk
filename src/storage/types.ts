@@ -180,5 +180,22 @@ export interface AnonymizerSession {
    * @returns true if exists, false otherwise
    */
   exists(): Promise<boolean>;
+
+  /**
+   * Create a streaming anonymizer bound to this session.
+   * The stream automatically uses this session's ID, storage, and key provider.
+   * Node.js/Bun only — not available in browser builds.
+   *
+   * @param config - Optional stream configuration overrides
+   * @returns A Transform stream that anonymizes text chunk-by-chunk
+   *
+   * @example
+   * ```typescript
+   * const session = anonymizer.session('chat-123');
+   * const stream = await session.createStream();
+   * input.pipe(stream).pipe(output);
+   * ```
+   */
+  createStream?(config?: Record<string, unknown>): Promise<NodeJS.ReadWriteStream>;
 }
 

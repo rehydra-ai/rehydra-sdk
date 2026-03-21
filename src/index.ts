@@ -225,12 +225,16 @@ export {
 export {
   createRehydraFetch,
   createRehydraProxy,
+  createRehydraProxyServer,
+  wrapLLMClient,
   SSEParser,
   detectProvider,
   OpenAIProvider,
   AnthropicProvider,
   type RehydraFetchConfig,
   type RehydraProxyConfig,
+  type RehydraProxyServerConfig,
+  type RehydraProxyServer,
   type LLMContentProvider,
   type SSEEvent,
 } from "./proxy/index.js";
