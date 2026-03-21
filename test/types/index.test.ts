@@ -147,13 +147,24 @@ describe("DetectionSource", () => {
 });
 
 describe("createDefaultPolicy", () => {
-  it("should create a policy with all types enabled", () => {
+  it("should create a policy with all non-secret types enabled", () => {
     const policy = createDefaultPolicy();
 
-    expect(policy.enabledTypes.size).toBe(Object.values(PIIType).length);
-    for (const type of Object.values(PIIType)) {
-      expect(policy.enabledTypes.has(type)).toBe(true);
-    }
+    // Secret types should NOT be enabled by default (opt-in only)
+    expect(policy.enabledTypes.has(PIIType.API_KEY)).toBe(false);
+    expect(policy.enabledTypes.has(PIIType.PRIVATE_KEY)).toBe(false);
+    expect(policy.enabledTypes.has(PIIType.JWT)).toBe(false);
+    expect(policy.enabledTypes.has(PIIType.CONNECTION_STRING)).toBe(false);
+    expect(policy.enabledTypes.has(PIIType.AWS_CREDENTIALS)).toBe(false);
+    expect(policy.enabledTypes.has(PIIType.ENV_VAR_SECRET)).toBe(false);
+    expect(policy.enabledTypes.has(PIIType.CONFIG_SECRET)).toBe(false);
+
+    // All non-secret types should be enabled
+    expect(policy.enabledTypes.has(PIIType.EMAIL)).toBe(true);
+    expect(policy.enabledTypes.has(PIIType.PERSON)).toBe(true);
+    expect(policy.enabledTypes.has(PIIType.PHONE)).toBe(true);
+    expect(policy.enabledTypes.has(PIIType.IBAN)).toBe(true);
+    expect(policy.enabledTypes.size).toBe(17);
   });
 
   it("should have correct regex-enabled types", () => {

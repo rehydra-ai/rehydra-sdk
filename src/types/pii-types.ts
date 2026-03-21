@@ -29,6 +29,15 @@ export enum PIIType {
   // Custom/Business identifiers
   CASE_ID = 'CASE_ID',
   CUSTOMER_ID = 'CUSTOMER_ID',
+
+  // Secrets/Credentials
+  API_KEY = 'API_KEY',
+  PRIVATE_KEY = 'PRIVATE_KEY',
+  JWT = 'JWT',
+  CONNECTION_STRING = 'CONNECTION_STRING',
+  AWS_CREDENTIALS = 'AWS_CREDENTIALS',
+  ENV_VAR_SECRET = 'ENV_VAR_SECRET',
+  CONFIG_SECRET = 'CONFIG_SECRET',
 }
 
 /**
@@ -52,6 +61,19 @@ export const REGEX_PII_TYPES: readonly PIIType[] = [
   PIIType.NATIONAL_ID,
   PIIType.CASE_ID,
   PIIType.CUSTOMER_ID,
+];
+
+/**
+ * PII types that are secrets/credentials (opt-in, regex-based)
+ */
+export const SECRET_PII_TYPES: readonly PIIType[] = [
+  PIIType.API_KEY,
+  PIIType.PRIVATE_KEY,
+  PIIType.JWT,
+  PIIType.CONNECTION_STRING,
+  PIIType.AWS_CREDENTIALS,
+  PIIType.ENV_VAR_SECRET,
+  PIIType.CONFIG_SECRET,
 ];
 
 /**
@@ -90,6 +112,14 @@ export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   PIIType.CREDIT_CARD,
   PIIType.TAX_ID,
   PIIType.NATIONAL_ID,
+  // Highest priority (secrets/credentials)
+  PIIType.ENV_VAR_SECRET,
+  PIIType.CONFIG_SECRET,
+  PIIType.CONNECTION_STRING,
+  PIIType.AWS_CREDENTIALS,
+  PIIType.API_KEY,
+  PIIType.PRIVATE_KEY,
+  PIIType.JWT,
 ];
 
 /**

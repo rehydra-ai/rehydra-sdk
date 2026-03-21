@@ -3,6 +3,7 @@ import {
   createAnonymizer,
   type AnonymizerConfig,
   type NERConfig,
+  type SecretsConfig,
   type AnonymizationPolicy,
   PIIType,
   mergePolicy,
@@ -105,6 +106,14 @@ function buildNerConfig(
   };
 }
 
+function buildSecretsConfig(options: ParsedOptions): SecretsConfig | undefined {
+  if (!options.secrets) return undefined;
+  return {
+    enabled: true,
+    envFiles: options["env-file"] !== undefined ? [options["env-file"]] : undefined,
+  };
+}
+
 export async function anonymizeCommand(
   filePath: string | undefined,
   options: ParsedOptions,
@@ -146,6 +155,11 @@ async function anonymizeBatch(
   const nerConfig = buildNerConfig(nerMode, options.quiet);
   if (nerConfig !== undefined) {
     config.ner = nerConfig;
+  }
+
+  const secretsConfig = buildSecretsConfig(options);
+  if (secretsConfig !== undefined) {
+    config.secrets = secretsConfig;
   }
 
   const anonymizer = createAnonymizer(config);
@@ -233,6 +247,11 @@ async function anonymizeFile(
   const nerConfig = buildNerConfig(nerMode, options.quiet);
   if (nerConfig !== undefined) {
     anonymizerConfig.ner = nerConfig;
+  }
+
+  const secretsConfig = buildSecretsConfig(options);
+  if (secretsConfig !== undefined) {
+    anonymizerConfig.secrets = secretsConfig;
   }
 
   const streamConfig: StreamConfig = {

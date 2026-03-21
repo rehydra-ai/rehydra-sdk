@@ -160,6 +160,8 @@ import { AnonymizerSessionImpl } from "./storage/session.js";
 
 // Re-export types from core
 export type { AnonymizerConfig, NERConfig };
+export type { SecretsConfig } from "./types/index.js";
+export { createSecretRecognizers } from "./recognizers/secrets/index.js";
 
 /**
  * Anonymizer instance
