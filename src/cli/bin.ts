@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 
+// Node 18 does not expose globalThis.crypto by default
+import { webcrypto } from "node:crypto";
+if (globalThis.crypto === undefined) {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
+  globalThis.crypto = webcrypto as any;
+}
+
 import { run } from "./main.js";
 import { CLIError } from "./utils/errors.js";
 
