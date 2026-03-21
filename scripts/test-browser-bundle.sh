@@ -39,9 +39,6 @@ export default defineConfig({
     },
     minify: false,
   },
-  resolve: {
-    conditions: ['browser', 'import', 'module', 'default'],
-  },
 });
 EOF
 
@@ -70,6 +67,16 @@ fi
 
 if echo "$OUTPUT" | grep -q '"path".*externalized'; then
   echo "❌ ERROR: path module is being imported (Node.js module in browser build)"
+  FAILED=1
+fi
+
+if echo "$OUTPUT" | grep -q '"node:stream"'; then
+  echo "❌ ERROR: node:stream is being imported (Node.js module in browser build)"
+  FAILED=1
+fi
+
+if echo "$OUTPUT" | grep -q '"node:http"'; then
+  echo "❌ ERROR: node:http is being imported (Node.js module in browser build)"
   FAILED=1
 fi
 

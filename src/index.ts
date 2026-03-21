@@ -210,31 +210,5 @@ export const anonymize = anonymizeCore;
 export const anonymizeRegexOnly = anonymizeRegexOnlyCore;
 export const anonymizeWithNER = anonymizeWithNERCore;
 
-// Re-export streaming module (Node.js/Bun only)
-export {
-  AnonymizerStream,
-  createAnonymizerStream,
-  SentenceBuffer,
-  type StreamConfig,
-  type SentenceBufferConfig,
-  type StreamChunkEvent,
-  type StreamFinishEvent,
-} from "./streaming/index.js";
-
-// Re-export proxy module (Node.js/Bun only)
-export {
-  createRehydraFetch,
-  createRehydraProxy,
-  createRehydraProxyServer,
-  wrapLLMClient,
-  SSEParser,
-  detectProvider,
-  OpenAIProvider,
-  AnthropicProvider,
-  type RehydraFetchConfig,
-  type RehydraProxyConfig,
-  type RehydraProxyServerConfig,
-  type RehydraProxyServer,
-  type LLMContentProvider,
-  type SSEEvent,
-} from "./proxy/index.js";
+// Note: Streaming and proxy modules are Node.js/Bun only.
+// Import from 'rehydra/streaming' or 'rehydra/proxy' subpaths.
