@@ -47,6 +47,18 @@
         "types": "./dist/storage/sqlite.d.ts",
         "default": "./dist/storage/sqlite.js"
       }
+    },
+    "./streaming": {
+      "node": {
+        "types": "./dist/streaming/index.d.ts",
+        "default": "./dist/streaming/index.js"
+      }
+    },
+    "./proxy": {
+      "node": {
+        "types": "./dist/proxy/index.d.ts",
+        "default": "./dist/proxy/index.js"
+      }
     }
   },
   "files": [
@@ -62,6 +74,11 @@
     "benchmark": "vitest bench",
     "benchmark:compare": "vitest bench --run test/benchmark/anonymizer-comparison.bench.ts",
     "benchmark:save": "mkdir -p benchmarks/history && vitest bench --run --outputJson=\"./benchmarks/history/$(date +%Y-%m-%d-%H%M%S).json\"",
+    "benchmark:memory": "npx tsx scripts/bench-memory.ts",
+    "benchmark:latency": "npx tsx scripts/bench-latency.ts",
+    "test:streaming": "npx tsx scripts/test-streaming.ts",
+    "test:proxy:openai": "npx tsx scripts/test-proxy-openai.ts",
+    "test:proxy:anthropic": "npx tsx scripts/test-proxy-anthropic.ts",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist",
     "setup:ner": "bash scripts/setup-ner-model.sh --quantize",

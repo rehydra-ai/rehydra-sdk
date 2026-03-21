@@ -41,3 +41,6 @@ models/ner/
 benchmarks/
 
 rehydra-sidecar/
+
+# Claude Code
+CLAUDE.md
