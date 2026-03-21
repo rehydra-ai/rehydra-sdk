@@ -22,6 +22,9 @@ Thumbs.db
 # Test coverage
 coverage/
 
+# PII maps
+.rehydra-pii-map.json
+
 # Environment
 .env
 .env.local
