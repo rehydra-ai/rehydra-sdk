@@ -60,6 +60,12 @@
         "default": "./dist/proxy/index.js"
       }
     },
+    "./opencode-plugin": {
+      "node": {
+        "types": "./dist/opencode-plugin/index.d.ts",
+        "default": "./dist/opencode-plugin/index.js"
+      }
+    },
     "./cli": {
       "node": {
         "types": "./dist/cli/main.d.ts",
