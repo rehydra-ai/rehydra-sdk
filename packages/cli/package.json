@@ -28,7 +28,7 @@
     "directory": "packages/cli"
   },
   "dependencies": {
-    "rehydra": "^0.5.0"
+    "rehydra": "^0.5.2"
   },
   "engines": {
     "node": ">=18.0.0"
