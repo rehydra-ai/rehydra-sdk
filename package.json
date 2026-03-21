@@ -7,6 +7,9 @@
   "browser": "./dist/browser.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "rehydra": "dist/cli/bin.js"
+  },
   "imports": {
     "#storage": {
       "browser": "./dist/utils/storage.browser.js",
