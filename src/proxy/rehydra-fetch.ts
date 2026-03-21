@@ -93,7 +93,17 @@ export function createRehydraFetch(
     );
 
     // Parse request body
-    const body: unknown = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      // Body is not valid JSON — pass through
+      return fetch(new Request(input, init));
+    }
+
+    if (body === null || body === undefined || typeof body !== "object") {
+      return fetch(new Request(input, init));
+    }
 
     // Get session ID for PII map persistence
     const sessionId = await getSessionId(request);
@@ -149,7 +159,21 @@ async function rehydrateJSONResponse(
   session: AnonymizerSessionImpl,
   provider: LLMContentProvider,
 ): Promise<Response> {
-  const body: unknown = await response.json();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    // Response is not valid JSON — return as-is
+    return response;
+  }
+
+  if (body === null || body === undefined || typeof body !== "object") {
+    return new Response(JSON.stringify(body), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  }
 
   // Extract response text and rehydrate
   const responseTexts = provider.extractResponseText(body);

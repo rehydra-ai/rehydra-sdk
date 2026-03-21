@@ -73,6 +73,13 @@ export const phoneRecognizer: Recognizer = {
         // Validate the match
         if (!this.validate!(phone)) continue;
 
+        // Reject if embedded in a hex string (SHA256 hashes, Docker image IDs)
+        const beforeIdx = match.index - 1;
+        const afterIdx = match.index + phone.length;
+        const charBefore = beforeIdx >= 0 ? text[beforeIdx] : '';
+        const charAfter = afterIdx < text.length ? text[afterIdx] : '';
+        if (/[a-f]/.test(charBefore ?? '') || /[a-f]/.test(charAfter ?? '')) continue;
+
         seen.add(key);
         matches.push({
           type: PIIType.PHONE,

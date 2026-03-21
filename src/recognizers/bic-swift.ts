@@ -100,6 +100,29 @@ export const bicSwiftRecognizer: Recognizer = {
       return false;
     }
 
+    // Reject common English words that happen to match BIC format
+    const COMMON_WORDS = new Set([
+      'HEALTHCHECK', 'COMPLAIN', 'COMPLAINT',
+      'DISCOVER', 'DISPATCH', 'DISPLAYS',
+      'DOWNLOAD', 'DOCUMENT',
+      'EXCHANGE', 'EXPLICIT',
+      'FUNCTION',
+      'GENERATE',
+      'IMPLICIT', 'INDUSTRY',
+      'LOCATION',
+      'MERCHANT', 'MINISTER',
+      'NATIONAL',
+      'OPERATOR', 'OPTIONAL', 'OPPOSITE',
+      'PLATFORM', 'PRACTICE', 'PRODUCED', 'PROTOCOL', 'PROVIDER', 'PUBLICLY',
+      'QUESTION',
+      'REGISTER', 'RELATION', 'REQUIRED', 'RESEARCH', 'RESOURCE',
+      'SECURITY', 'SERVICES', 'SOFTWARE', 'SPECIFIC', 'STANDARD', 'SUBJECTS',
+      'TEMPLATE', 'TRANSFER', 'TRUNCATE',
+    ]);
+    if (COMMON_WORDS.has(normalized)) {
+      return false;
+    }
+
     // Location code should be alphanumeric
     const locationCode = normalized.slice(6, 8);
     if (!/^[A-Z0-9]{2}$/.test(locationCode)) {

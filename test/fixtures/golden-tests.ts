@@ -91,10 +91,10 @@ export const GOLDEN_TESTS: GoldenTestCase[] = [
   // IP Address tests
   {
     name: 'ipv4',
-    input: 'Server at 192.168.1.100',
+    input: 'Server at 203.0.113.42',
     expectedTypes: [PIIType.IP_ADDRESS],
     expectedCount: 1,
-    description: 'IPv4 address',
+    description: 'IPv4 address (public IP)',
   },
 
   // URL tests

@@ -119,7 +119,10 @@ export const ipAddressRecognizer: Recognizer = {
   validate(ip: string): boolean {
     // Check if it's IPv4
     if (ip.includes('.') && !ip.includes(':')) {
-      return isValidIPv4(ip);
+      if (!isValidIPv4(ip)) return false;
+      // Skip localhost and private/internal IPs — not PII
+      if (isInternalIPv4(ip)) return false;
+      return true;
     }
 
     // Check if it's IPv6

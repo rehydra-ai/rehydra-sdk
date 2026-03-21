@@ -62,11 +62,11 @@ export function createCustomIdRecognizer(patterns: CustomIdPattern[]): Recognize
  * Common patterns for banking/government IDs that can be used as templates
  */
 export const COMMON_ID_PATTERNS: Record<string, RegExp> = {
-  // German case/file reference patterns
-  germanCaseId: /\b[A-Z]{2,3}[\s-]?[0-9]{4,10}[\s-]?[A-Z0-9]{0,4}\b/g,
+  // German case/file reference patterns (e.g., AZ 12345678, BV-2024-1234)
+  germanCaseId: /\b[A-Z]{2,3}[-\s][0-9]{4,10}(?:[-\s][A-Z0-9]{1,4})?\b/g,
 
-  // Generic case number (e.g., CASE-12345)
-  genericCaseNumber: /\b(?:CASE|FILE|REF|TICKET)[\s-]?[A-Z0-9]{4,12}\b/gi,
+  // Generic case number (e.g., CASE-12345, REF-AB1234) — requires dash/underscore separator
+  genericCaseNumber: /\b(?:CASE|FILE|REF|TICKET)[-_][A-Z0-9]{4,12}\b/gi,
 
   // Customer number patterns
   customerNumber: /\b(?:CUST|CUSTOMER|KD|KUNDEN)[\s-]?(?:NR|NO|NUM|NUMBER)?[\s-]?[0-9]{4,12}\b/gi,

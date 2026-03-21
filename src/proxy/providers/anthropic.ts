@@ -51,6 +51,7 @@ export class AnthropicProvider implements LLMContentProvider {
   }
 
   extractRequestText(body: unknown): string[] {
+    if (body === null || body === undefined || typeof body !== "object") return [];
     const req = body as AnthropicMessagesRequest;
     const texts: string[] = [];
 
@@ -83,6 +84,7 @@ export class AnthropicProvider implements LLMContentProvider {
   }
 
   rebuildRequestBody(body: unknown, anonymizedTexts: string[]): unknown {
+    if (body === null || body === undefined || typeof body !== "object") return body;
     const req = structuredClone(body) as AnthropicMessagesRequest;
     let idx = 0;
 
@@ -113,6 +115,7 @@ export class AnthropicProvider implements LLMContentProvider {
   }
 
   extractResponseText(body: unknown): string[] {
+    if (body === null || body === undefined || typeof body !== "object") return [];
     const res = body as AnthropicMessagesResponse;
     if (res.content === undefined || !Array.isArray(res.content)) return [];
 
@@ -126,7 +129,9 @@ export class AnthropicProvider implements LLMContentProvider {
   }
 
   rebuildResponseBody(body: unknown, rehydratedTexts: string[]): unknown {
+    if (body === null || body === undefined || typeof body !== "object") return body;
     const res = structuredClone(body) as AnthropicMessagesResponse;
+    if (!Array.isArray(res.content)) return res;
     let idx = 0;
 
     for (const block of res.content) {

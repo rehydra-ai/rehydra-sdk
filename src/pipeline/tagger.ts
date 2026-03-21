@@ -357,15 +357,20 @@ const CLOSE_BRACKET = `(?:>|&gt;)`;
  * This commonly happens when LLMs (like ChatGPT) HTML-encode their responses
  */
 function buildFuzzyTagPatterns(): RegExp[] {
+  // Optional JSON escapes: handles multiple levels of backslash-escaping
+  // before quotes in JSON-encoded strings (e.g., \" or \\\" or \\\\\" etc.)
+  // where PII tags appear inside function call arguments or other JSON contexts
+  const OPT_JSON_ESC = `\\\\*`;
+
   // Pattern for type attribute: type = "VALUE" (flexible spacing and quotes)
-  const typeAttr = `type${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}([A-Z_]+)${QUOTE_CHARS}`;
+  const typeAttr = `type${FLEXIBLE_WS}=${FLEXIBLE_WS}${OPT_JSON_ESC}${QUOTE_CHARS}([A-Z_]+)${OPT_JSON_ESC}${QUOTE_CHARS}`;
   // Pattern for id attribute: id = "VALUE" (flexible spacing and quotes)
   // Also handles malformed cases where /> or /&gt; got placed inside the quotes (e.g., id="7/>")
-  const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\d+)(?:\\/?(?:>|&gt;)?)?${QUOTE_CHARS}`;
+  const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${OPT_JSON_ESC}${QUOTE_CHARS}(\\d+)(?:\\/?(?:>|&gt;)?)?${OPT_JSON_ESC}${QUOTE_CHARS}`;
   // Optional gender attribute
-  const genderAttr = `(?:${FLEXIBLE_WS}gender${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
+  const genderAttr = `(?:${FLEXIBLE_WS}gender${FLEXIBLE_WS}=${FLEXIBLE_WS}${OPT_JSON_ESC}${QUOTE_CHARS}(\\w+)${OPT_JSON_ESC}${QUOTE_CHARS})?`;
   // Optional scope attribute
-  const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
+  const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${OPT_JSON_ESC}${QUOTE_CHARS}(\\w+)${OPT_JSON_ESC}${QUOTE_CHARS})?`;
 
   // Self-closing tag endings: />, / >, >, /&gt;, &gt;, or nothing if already closed inside quotes
   // Only consume whitespace if followed by / or closing bracket (prevents greedy matching of trailing space)
@@ -600,11 +605,23 @@ export function rehydrate(
     const original = piiMap.get(key);
 
     if (original !== undefined) {
+      // If the tag is in a JSON-encoded context (has backslash-escaped quotes),
+      // the replacement value must also be JSON-escaped to preserve valid JSON
+      let replacement = original;
+      if (matchedText.includes("\\")) {
+        replacement = replacement
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, "\\n")
+          .replace(/\r/g, "\\r")
+          .replace(/\t/g, "\\t");
+      }
+
       // Use the actual matched text length for replacement
       // This handles mangled tags where the length differs from the canonical form
       result =
         result.slice(0, position) +
-        original +
+        replacement +
         result.slice(position + matchedText.length);
     }
   }
