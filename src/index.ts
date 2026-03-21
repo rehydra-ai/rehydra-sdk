@@ -209,3 +209,28 @@ export function createAnonymizer(config?: AnonymizerConfig): Anonymizer {
 export const anonymize = anonymizeCore;
 export const anonymizeRegexOnly = anonymizeRegexOnlyCore;
 export const anonymizeWithNER = anonymizeWithNERCore;
+
+// Re-export streaming module (Node.js/Bun only)
+export {
+  AnonymizerStream,
+  createAnonymizerStream,
+  SentenceBuffer,
+  type StreamConfig,
+  type SentenceBufferConfig,
+  type StreamChunkEvent,
+  type StreamFinishEvent,
+} from "./streaming/index.js";
+
+// Re-export proxy module (Node.js/Bun only)
+export {
+  createRehydraFetch,
+  createRehydraProxy,
+  SSEParser,
+  detectProvider,
+  OpenAIProvider,
+  AnthropicProvider,
+  type RehydraFetchConfig,
+  type RehydraProxyConfig,
+  type LLMContentProvider,
+  type SSEEvent,
+} from "./proxy/index.js";
