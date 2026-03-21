@@ -188,6 +188,99 @@ describe('NER Model', () => {
       });
     });
 
+    describe('case fallback', () => {
+      let fallbackModel: INERModel | null = null;
+
+      beforeAll(async () => {
+        if (isCI || !modelAvailable) return;
+        const { modelPath, vocabPath } = await ensureModel('quantized', { autoDownload: false });
+
+        fallbackModel = createNERModel({
+          modelPath,
+          vocabPath,
+          labelMap: MODEL_REGISTRY.quantized.labelMap,
+          modelVersion: '1.0.0',
+          caseFallback: true,
+        });
+        await fallbackModel.load();
+      }, 60000);
+
+      afterAll(async () => {
+        if (fallbackModel) await fallbackModel.dispose();
+      });
+
+      it('should detect lowercase person names via case fallback', async () => {
+        if (isCI || !modelAvailable) return;
+        const result = await fallbackModel!.predict('Whats going on tom?');
+
+        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
+        expect(personSpans.length).toBeGreaterThanOrEqual(1);
+
+        const tom = personSpans.find(s => s.text?.toLowerCase().includes('tom'));
+        expect(tom).toBeDefined();
+        // Fallback detections should have the original (lowercase) text
+        expect(tom!.text).toBe('tom');
+      });
+
+      it('should still detect capitalized names normally', async () => {
+        if (isCI || !modelAvailable) return;
+        const result = await fallbackModel!.predict('Whats going on Tom?');
+
+        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
+        expect(personSpans.length).toBeGreaterThanOrEqual(1);
+
+        const tom = personSpans.find(s => s.text?.includes('Tom'));
+        expect(tom).toBeDefined();
+      });
+
+      it('should apply confidence penalty to fallback detections', async () => {
+        if (isCI || !modelAvailable) return;
+        const resultLower = await fallbackModel!.predict('Whats going on tom?');
+        const resultUpper = await fallbackModel!.predict('Whats going on Tom?');
+
+        const tomLower = resultLower.spans.find(s => s.text?.toLowerCase() === 'tom');
+        const tomUpper = resultUpper.spans.find(s => s.text === 'Tom');
+
+        if (tomLower && tomUpper) {
+          // Fallback detection should have lower confidence due to penalty
+          expect(tomLower.confidence).toBeLessThan(tomUpper.confidence);
+        }
+      });
+
+      it('should not duplicate entities already found in primary pass', async () => {
+        if (isCI || !modelAvailable) return;
+        // "John Smith" should be detected in primary pass; fallback should not add a duplicate
+        const result = await fallbackModel!.predict('Hello John Smith!');
+
+        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
+        // Should have exactly 1, not 2
+        const johnSpans = personSpans.filter(s => s.text?.includes('John'));
+        expect(johnSpans.length).toBe(1);
+      });
+
+      it('should preserve correct character offsets for fallback detections', async () => {
+        if (isCI || !modelAvailable) return;
+        const text = 'hello tom, how are you?';
+        const result = await fallbackModel!.predict(text);
+
+        for (const span of result.spans) {
+          expect(span.start).toBeGreaterThanOrEqual(0);
+          expect(span.end).toBeLessThanOrEqual(text.length);
+          if (span.text) {
+            expect(span.text).toBe(text.slice(span.start, span.end));
+          }
+        }
+      });
+
+      it('should not detect lowercase names when disabled (default)', async () => {
+        if (isCI || !modelAvailable) return;
+        // The shared `model` has default config (caseFallback: false)
+        const result = await model!.predict('Whats going on tom?');
+        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
+        expect(personSpans.length).toBe(0);
+      });
+    });
+
     describe('confidence filtering', () => {
       it('should filter by policy thresholds', async () => {
         if (isCI || !modelAvailable) return;

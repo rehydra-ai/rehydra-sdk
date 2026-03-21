@@ -178,6 +178,22 @@ export interface NERConfig {
    * Only used when backend is 'inference-server'
    */
   inferenceServerTimeout?: number;
+
+  /**
+   * Enable case-insensitive fallback for detecting lowercase names.
+   * Runs a second NER pass on title-cased text and merges new detections.
+   * Doubles NER inference time but catches names like "tom" that the
+   * case-sensitive model would otherwise miss.
+   * @default false
+   */
+  caseFallback?: boolean;
+
+  /**
+   * Confidence penalty multiplier for case-fallback detections (0.0 - 1.0).
+   * Applied as: confidence * caseFallbackPenalty
+   * @default 0.85
+   */
+  caseFallbackPenalty?: number;
 }
 
 /**
@@ -348,6 +364,8 @@ export class Anonymizer {
         vocabPath: this.nerConfig.vocabPath,
         modelVersion: this.modelVersion,
         sessionOptions: this.nerConfig.sessionOptions,
+        caseFallback: this.nerConfig.caseFallback,
+        caseFallbackPenalty: this.nerConfig.caseFallbackPenalty,
       });
     } else {
       // 'standard' or 'quantized' - use model manager with local ONNX
@@ -376,6 +394,8 @@ export class Anonymizer {
         labelMap,
         modelVersion: this.modelVersion,
         sessionOptions: this.nerConfig.sessionOptions,
+        caseFallback: this.nerConfig.caseFallback,
+        caseFallbackPenalty: this.nerConfig.caseFallbackPenalty,
       });
     }
 
