@@ -98,7 +98,7 @@ describe("CLI integration", () => {
         "-q",
       ]);
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
       const output = await readFile(outputPath, "utf-8");
       expect(output).toContain('<PII type="EMAIL"');
       expect(output).not.toContain("test@example.com");
@@ -111,7 +111,7 @@ describe("CLI integration", () => {
         { input: "Email john@test.org today." },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
       expect(result.stdout).toContain('<PII type="EMAIL"');
       expect(result.stdout).not.toContain("john@test.org");
     });
@@ -123,7 +123,7 @@ describe("CLI integration", () => {
         { input: "Email: user@example.com" },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
       const parsed = JSON.parse(result.stdout) as { anonymizedText: string; entities: unknown[] };
       expect(parsed.anonymizedText).toContain("PII");
       expect(parsed.entities.length).toBeGreaterThan(0);
@@ -136,7 +136,7 @@ describe("CLI integration", () => {
         { input: "Hello world, nothing sensitive." },
       );
 
-      expect(result.exitCode).toBe(2);
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(2);
     });
   });
 
@@ -151,12 +151,13 @@ describe("CLI integration", () => {
       await writeFile(inputPath, original);
 
       // Anonymize
-      await runCLI([
+      const anonResult = await runCLI([
         "anonymize", inputPath,
         "-o", anonPath,
         "--pii-map", piiMapPath,
         "-q",
       ]);
+      expect(anonResult.exitCode, `anonymize stderr: ${anonResult.stderr}`).toBe(0);
 
       // Rehydrate
       const result = await runCLI([
@@ -165,7 +166,7 @@ describe("CLI integration", () => {
         "--pii-map", piiMapPath,
       ]);
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
       const rehydrated = (await readFile(rehydratedPath, "utf-8")).trim();
       expect(rehydrated).toBe(original);
     });
@@ -178,7 +179,7 @@ describe("CLI integration", () => {
         { input: "Email support@example.com for help." },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
       expect(result.stdout).toContain("EMAIL");
       expect(result.stdout).toContain("support@example.com");
     });
