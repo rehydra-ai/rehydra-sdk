@@ -131,4 +131,35 @@ describe("rehydrate command", () => {
       })),
     ).rejects.toThrow("PII map file not found");
   });
+
+  it("should fail when no key is available", async () => {
+    const inputPath = join(testDir, "input.txt");
+    const piiMapPath = join(testDir, "pii-map.json");
+    await writeFile(inputPath, "some text", "utf-8");
+
+    // Write a PII map file without a key
+    const { writeFile: writeF } = await import("node:fs/promises");
+    await writeF(piiMapPath, JSON.stringify({
+      version: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      piiMap: { ciphertext: "test", iv: "test", authTag: "test" },
+      stats: { totalEntities: 0, countsByType: {} },
+    }), "utf-8");
+
+    // No --key, no REHYDRA_KEY, no key in file
+    const origEnv = process.env["REHYDRA_KEY"];
+    delete process.env["REHYDRA_KEY"];
+
+    try {
+      await expect(
+        rehydrateCommand(inputPath, makeOptions({
+          "pii-map": piiMapPath,
+        })),
+      ).rejects.toThrow("No encryption key found");
+    } finally {
+      if (origEnv !== undefined) {
+        process.env["REHYDRA_KEY"] = origEnv;
+      }
+    }
+  });
 });

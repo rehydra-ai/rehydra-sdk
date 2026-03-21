@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -176,5 +176,132 @@ describe("anonymize command", () => {
     const raw = await readFile(piiMapPath, "utf-8");
     const parsed = JSON.parse(raw) as { key?: string };
     expect(parsed.key).toBeUndefined();
+  });
+
+  it("should throw on invalid NER mode", async () => {
+    const inputPath = join(testDir, "input.txt");
+    await writeFile(inputPath, "test", "utf-8");
+
+    await expect(
+      anonymizeCommand(inputPath, makeOptions({ ner: "badmode" })),
+    ).rejects.toThrow("Invalid NER mode");
+  });
+
+  it("should throw on invalid anonymization mode", async () => {
+    const inputPath = join(testDir, "input.txt");
+    await writeFile(inputPath, "test", "utf-8");
+
+    await expect(
+      anonymizeCommand(inputPath, makeOptions({ mode: "badmode" })),
+    ).rejects.toThrow("Invalid mode");
+  });
+
+  it("should throw on invalid format", async () => {
+    const inputPath = join(testDir, "input.txt");
+    await writeFile(inputPath, "test", "utf-8");
+
+    await expect(
+      anonymizeCommand(inputPath, makeOptions({ format: "xml" })),
+    ).rejects.toThrow("Invalid format");
+  });
+
+  it("should throw on unknown PII type", async () => {
+    const inputPath = join(testDir, "input.txt");
+    await writeFile(inputPath, "test", "utf-8");
+
+    await expect(
+      anonymizeCommand(inputPath, makeOptions({ types: "BADTYPE" })),
+    ).rejects.toThrow("Unknown PII type");
+  });
+
+  it("should throw on empty types string", async () => {
+    const inputPath = join(testDir, "input.txt");
+    await writeFile(inputPath, "test", "utf-8");
+
+    await expect(
+      anonymizeCommand(inputPath, makeOptions({ types: "," })),
+    ).rejects.toThrow("--types must specify at least one PII type");
+  });
+
+  it("should print PII map saved message when not quiet", async () => {
+    const inputPath = join(testDir, "input.txt");
+    const outputPath = join(testDir, "output.txt");
+    const piiMapPath = join(testDir, "pii-map.json");
+
+    await writeFile(inputPath, "Email: test@example.com", "utf-8");
+
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrChunks.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      await anonymizeCommand(inputPath, makeOptions({
+        output: outputPath,
+        quiet: false,
+        "pii-map": piiMapPath,
+      }));
+      expect(stderrChunks.join("")).toContain("PII map saved to");
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  it("should print stats when verbose", async () => {
+    const inputPath = join(testDir, "input.txt");
+    const outputPath = join(testDir, "output.txt");
+
+    await writeFile(inputPath, "Email: test@example.com", "utf-8");
+
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string) => {
+      stderrChunks.push(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      await anonymizeCommand(inputPath, makeOptions({
+        output: outputPath,
+        verbose: true,
+        "pii-map": join(testDir, "pii-map.json"),
+      }));
+      expect(stderrChunks.join("")).toContain("Found");
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  it("should use REHYDRA_KEY env var", async () => {
+    const inputPath = join(testDir, "input.txt");
+    const outputPath = join(testDir, "output.txt");
+    const piiMapPath = join(testDir, "pii-map.json");
+
+    await writeFile(inputPath, "Email: test@example.com", "utf-8");
+
+    const { generateKey, uint8ArrayToBase64 } = await import("../../../src/crypto/index.js");
+    const key = uint8ArrayToBase64(generateKey());
+
+    const origEnv = process.env["REHYDRA_KEY"];
+    process.env["REHYDRA_KEY"] = key;
+
+    try {
+      await anonymizeCommand(inputPath, makeOptions({
+        output: outputPath,
+        "pii-map": piiMapPath,
+      }));
+      const raw = await readFile(piiMapPath, "utf-8");
+      const parsed = JSON.parse(raw) as { key?: string };
+      // Key should not be stored when env var is used
+      expect(parsed.key).toBeUndefined();
+    } finally {
+      if (origEnv === undefined) {
+        delete process.env["REHYDRA_KEY"];
+      } else {
+        process.env["REHYDRA_KEY"] = origEnv;
+      }
+    }
   });
 });
