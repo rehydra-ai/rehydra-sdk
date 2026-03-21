@@ -1,4 +1,4 @@
-import { PIIType, DEFAULT_TYPE_PRIORITY } from "./pii-types.js";
+import { PIIType, DEFAULT_TYPE_PRIORITY, SECRET_PII_TYPES } from "./pii-types.js";
 
 export * from "./pii-types.js";
 
@@ -218,8 +218,30 @@ export interface AnonymizationResult {
 /**
  * Creates a default anonymization policy with all types enabled
  */
+/**
+ * Secrets/credentials detection configuration
+ */
+export interface SecretsConfig {
+  /** Enable secrets/credentials detection */
+  enabled: boolean;
+  /** .env file paths to parse for known secret values */
+  envFiles?: string[];
+  /** Explicit values to always redact */
+  redactValues?: string[];
+  /** Additional key name patterns for ENV_VAR_SECRET / CONFIG_SECRET detection */
+  secretKeyPatterns?: RegExp[];
+  /** Minimum value length to consider as a secret (default: 8) */
+  minValueLength?: number;
+}
+
 export function createDefaultPolicy(): AnonymizationPolicy {
   const allTypes = new Set(Object.values(PIIType) as PIIType[]);
+
+  // Secret types are opt-in only — exclude from default enabled set
+  const secretTypeSet = new Set<PIIType>(SECRET_PII_TYPES);
+  for (const secretType of secretTypeSet) {
+    allTypes.delete(secretType);
+  }
 
   const defaultThresholds = new Map<PIIType, number>();
   for (const type of allTypes) {

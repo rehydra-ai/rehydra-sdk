@@ -2,6 +2,7 @@ import {
   createAnonymizer,
   type AnonymizerConfig,
   type NERConfig,
+  type SecretsConfig,
   PIIType,
   mergePolicy,
   InMemoryKeyProvider,
@@ -58,6 +59,14 @@ export async function inspectCommand(
             process.stderr.write(`${status}\n`);
           },
     };
+  }
+
+  if (options.secrets) {
+    const secretsConfig: SecretsConfig = {
+      enabled: true,
+      envFiles: options["env-file"] !== undefined ? [options["env-file"]] : undefined,
+    };
+    config.secrets = secretsConfig;
   }
 
   const policy = options.types !== undefined

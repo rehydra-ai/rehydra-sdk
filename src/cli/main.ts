@@ -18,6 +18,8 @@ export interface ParsedOptions {
   types?: string;
   mode: string;
   locale?: string;
+  secrets: boolean;
+  "env-file"?: string;
   verbose: boolean;
   quiet: boolean;
 }
@@ -43,6 +45,8 @@ ${bold("OPTIONS")}
       --types <types>      Comma-separated PII types to detect (default: all)
       --mode <mode>        anonymize | pseudonymize (default: pseudonymize)
       --locale <locale>    Locale hint for detection (e.g., de-DE)
+      --secrets            Enable secrets/credentials detection
+      --env-file <file>    .env file path for literal value redaction
       --no-color           Disable colored output
       --verbose            Show detection details
   -q, --quiet              Suppress non-essential output
@@ -87,6 +91,8 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
         types: { type: "string" },
         mode: { type: "string", default: "pseudonymize" },
         locale: { type: "string" },
+        secrets: { type: "boolean", default: false },
+        "env-file": { type: "string" },
         "no-color": { type: "boolean", default: false },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", short: "q", default: false },
@@ -136,6 +142,8 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
     types: values["types"] as string | undefined,
     mode: (values["mode"] as string | undefined) ?? "pseudonymize",
     locale: values["locale"] as string | undefined,
+    secrets: values["secrets"] === true || values["env-file"] !== undefined,
+    "env-file": values["env-file"] as string | undefined,
     verbose: values["verbose"] === true,
     quiet: values["quiet"] === true,
   };

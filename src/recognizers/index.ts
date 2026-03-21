@@ -20,6 +20,9 @@ export {
   isStructuredId,
 } from './custom-id.js';
 
+export { createSecretRecognizers } from './secrets/index.js';
+export * from './secrets/index.js';
+
 import { RecognizerRegistry } from './registry.js';
 import { emailRecognizer } from './email.js';
 import { phoneRecognizer } from './phone.js';

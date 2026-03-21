@@ -10,15 +10,19 @@ import {
   AnonymizationMode,
   DetectedEntity,
   SemanticConfig,
+  SecretsConfig,
   SpanMatch,
   PIIType,
   createDefaultPolicy,
+  SECRET_PII_TYPES,
 } from "../types/index.js";
 
 import {
   createDefaultRegistry,
   RecognizerRegistry,
+  createSecretRecognizers,
 } from "../recognizers/index.js";
+import { createLiteralValueRecognizer } from "../recognizers/secrets/literal-value.js";
 
 import {
   type INERModel,
@@ -224,6 +228,13 @@ export interface AnonymizerConfig {
    */
   semantic?: SemanticConfig;
 
+  /**
+   * Secrets/credentials detection configuration
+   * Detects API keys, private keys, JWTs, connection strings, etc.
+   * @default { enabled: false }
+   */
+  secrets?: SecretsConfig;
+
   /** Key provider for encryption (generates random key if not provided) */
   keyProvider?: KeyProvider;
 
@@ -262,6 +273,7 @@ export class Anonymizer {
   private nerModel: INERModel | null = null;
   private nerConfig: NERConfig;
   private semanticConfig: SemanticConfig;
+  private secretsConfig: SecretsConfig;
   private mode: AnonymizationMode;
   private keyProvider: KeyProvider | null;
   private piiStorageProvider: PIIStorageProvider | null;
@@ -310,6 +322,29 @@ export class Anonymizer {
         ...this.defaultPolicy,
         enableSemanticMasking: true,
       };
+    }
+
+    // Handle secrets configuration
+    this.secretsConfig = config.secrets ?? { enabled: false };
+
+    if (this.secretsConfig.enabled) {
+      // Add secret types to enabled types and regex enabled types
+      const enabledTypes = new Set(this.defaultPolicy.enabledTypes);
+      const regexEnabledTypes = new Set(this.defaultPolicy.regexEnabledTypes);
+      for (const secretType of SECRET_PII_TYPES) {
+        enabledTypes.add(secretType);
+        regexEnabledTypes.add(secretType);
+      }
+      this.defaultPolicy = {
+        ...this.defaultPolicy,
+        enabledTypes,
+        regexEnabledTypes,
+      };
+
+      // Register secret recognizers
+      for (const recognizer of createSecretRecognizers()) {
+        this.registry.register(recognizer);
+      }
     }
   }
 
@@ -436,6 +471,35 @@ export class Anonymizer {
       // Load data into memory for synchronous access during enrichment
       await loadSemanticData();
       this.semanticDataReady = true;
+    }
+
+    // Handle secrets .env file loading and literal value matching
+    if (this.secretsConfig.enabled) {
+      const literalValues: string[] = [
+        ...(this.secretsConfig.redactValues ?? []),
+      ];
+      const minLength = this.secretsConfig.minValueLength ?? 8;
+
+      // Parse .env files if provided
+      if (this.secretsConfig.envFiles !== undefined && this.secretsConfig.envFiles.length > 0) {
+        const storage = await getStorageProvider();
+        for (const envFile of this.secretsConfig.envFiles) {
+          try {
+            const content = await storage.readTextFile(envFile);
+            const parsed = parseEnvFile(content);
+            literalValues.push(...parsed);
+          } catch {
+            // Skip files that can't be read
+          }
+        }
+      }
+
+      // Register literal value recognizer if we have values
+      if (literalValues.length > 0) {
+        this.registry.register(
+          createLiteralValueRecognizer(literalValues, minLength),
+        );
+      }
     }
 
     this.modelVersion = this.nerModel.version;
@@ -781,4 +845,28 @@ export async function anonymizeWithNER(
   } finally {
     await anonymizer.dispose();
   }
+}
+
+/**
+ * Parses a .env file content and returns values
+ */
+function parseEnvFile(content: string): string[] {
+  const values: string[] = [];
+  const lines = content.split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Skip comments and empty lines
+    if (trimmed === "" || trimmed.startsWith("#")) continue;
+
+    // Match KEY=VALUE (with optional export prefix and quotes)
+    const match = trimmed.match(
+      /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*["']?(.*?)["']?$/,
+    );
+    if (match !== null && match[1] !== undefined && match[1] !== "") {
+      values.push(match[1]);
+    }
+  }
+
+  return values;
 }
