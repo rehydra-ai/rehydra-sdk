@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { Readable } from "node:stream";
 import {
-  createAnonymizerStream,
   createAnonymizer,
   InMemoryKeyProvider,
   InMemoryPIIStorageProvider,
   decryptPIIMap,
   rehydrate,
 } from "../../src/index.js";
+import { createAnonymizerStream } from "../../src/streaming/index.js";
 
 async function collectStream(stream: NodeJS.ReadableStream): Promise<string> {
   const chunks: string[] = [];
