@@ -42,6 +42,18 @@ export interface NERModelConfig {
   modelVersion: string;
   /** ONNX session options for performance tuning */
   sessionOptions?: OrtSessionOptions;
+  /**
+   * Enable case-insensitive fallback pass for detecting lowercase names.
+   * Runs a second NER pass on title-cased text and merges new detections.
+   * @default false
+   */
+  caseFallback?: boolean;
+  /**
+   * Confidence penalty multiplier for case-fallback detections (0.0 - 1.0).
+   * Applied as: confidence * caseFallbackPenalty
+   * @default 0.85
+   */
+  caseFallbackPenalty?: number;
 }
 
 /**
@@ -159,6 +171,35 @@ export class NERModel {
   }
 
   /**
+   * Runs a single NER pass: tokenize, infer, decode BIO tags.
+   * @param inputText - Text to tokenize and feed to the model
+   * @param originalText - Original text used for extracting entity text (may differ in casing)
+   */
+  private async runNERPass(
+    inputText: string,
+    originalText: string,
+    minConfidence: number
+  ): Promise<SpanMatch[]> {
+    // Tokenize the input text (may be case-modified)
+    const tokenization = this.tokenizer!.tokenize(inputText);
+
+    // Run inference
+    const { labels, confidences } = await this.runInference(tokenization);
+
+    // Decode BIO tags using original text for entity text extraction
+    // (offsets are identical since casing doesn't change string length)
+    const rawEntities = decodeBIOTags(
+      tokenization.tokens,
+      labels,
+      confidences,
+      originalText
+    );
+
+    // Convert to SpanMatch format with confidence filtering
+    return convertToSpanMatches(rawEntities, minConfidence);
+  }
+
+  /**
    * Predicts entities in text
    */
   async predict(
@@ -171,23 +212,33 @@ export class NERModel {
       throw new Error("Model not loaded. Call load() first.");
     }
 
-    // Tokenize input
-    const tokenization = this.tokenizer.tokenize(text);
-
-    // Run inference
-    const { labels, confidences } = await this.runInference(tokenization);
-
-    // Decode BIO tags to entities
-    const rawEntities = decodeBIOTags(
-      tokenization.tokens,
-      labels,
-      confidences,
-      text
-    );
-
-    // Convert to SpanMatch format with confidence filtering
     const minConfidence = this.getMinConfidence(policy);
-    let spans = convertToSpanMatches(rawEntities, minConfidence);
+
+    // Primary NER pass on original text
+    let spans = await this.runNERPass(text, text, minConfidence);
+
+    // Case fallback: run a second pass on title-cased text to catch lowercase names
+    const caseFallback = this.config.caseFallback ?? false;
+    if (caseFallback) {
+      const titleCased = titleCaseWords(text);
+      if (titleCased !== text) {
+        const penalty = this.config.caseFallbackPenalty ?? 0.85;
+        const fallbackSpans = await this.runNERPass(titleCased, text, minConfidence);
+
+        // Merge only non-overlapping fallback detections with a confidence penalty
+        for (const fallback of fallbackSpans) {
+          const overlaps = spans.some(
+            (primary) => primary.start < fallback.end && fallback.start < primary.end
+          );
+          if (!overlaps) {
+            spans.push({
+              ...fallback,
+              confidence: fallback.confidence * penalty,
+            });
+          }
+        }
+      }
+    }
 
     // Post-process spans
     spans = cleanupSpanBoundaries(spans, text);
@@ -364,6 +415,14 @@ export class NERModel {
 }
 
 /**
+ * Capitalizes the first letter of each word for case-insensitive NER fallback.
+ * Preserves string length so character offsets remain valid.
+ */
+function titleCaseWords(text: string): string {
+  return text.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+}
+
+/**
  * Softmax function for probability calculation
  */
 function softmax(logits: number[]): number[] {
@@ -387,6 +446,8 @@ export function createNERModel(
     doLowerCase: config.doLowerCase ?? false, // XLM-RoBERTa is cased
     modelVersion: config.modelVersion ?? "1.0.0",
     sessionOptions: config.sessionOptions,
+    caseFallback: config.caseFallback,
+    caseFallbackPenalty: config.caseFallbackPenalty,
   };
 
   return new NERModel(fullConfig);
