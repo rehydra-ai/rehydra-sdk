@@ -45,18 +45,18 @@ export function resolveConfig(
   if (options.log !== undefined && options.log !== false) {
     logLevel = options.log.level;
     logFile = options.log.file;
-  } else if (options.logFile) {
+  } else if (options.logFile !== undefined && options.logFile !== "") {
     // Deprecated path: logFile without log → treat as debug
     logLevel = "debug";
     logFile = options.logFile;
-  } else if (envLogLevel) {
+  } else if (envLogLevel !== undefined && envLogLevel !== false) {
     logLevel = envLogLevel;
     logFile = process.env["REHYDRA_LOG_FILE"] ?? "rehydra.log";
   } else if (fileConfig.log !== undefined && fileConfig.log !== false) {
     const fc = fileConfig.log as { level: RehydraLogLevel; file: string };
     logLevel = fc.level;
     logFile = fc.file;
-  } else if (fileConfig.logFile) {
+  } else if (fileConfig.logFile !== undefined && fileConfig.logFile !== "") {
     logLevel = "debug";
     logFile = fileConfig.logFile;
   }

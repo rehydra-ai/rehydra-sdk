@@ -76,7 +76,7 @@ function writeLog(
   minLevel: RehydraLogLevel,
   entry: Record<string, unknown>,
 ): void {
-  if (!logFile || !logLevel) return;
+  if (logFile === null || logLevel === false) return;
   // "normal" logs at normal+debug, "debug" logs only at debug
   if (minLevel === "debug" && logLevel !== "debug") return;
   try {
@@ -91,7 +91,7 @@ function writeLog(
  * pseudonymizes secrets, and rehydrates responses.
  */
 export function createRehydraPlugin(options: RehydraPluginOptions) {
-  return async (input: { directory: string }): Promise<Record<string, unknown>> => {
+  return (input: { directory: string }): Record<string, unknown> => {
     const config = resolveConfig(options, input.directory);
     const providerHint = mapProvider(options.provider);
 
@@ -114,7 +114,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
     let initialized = false;
     let sessionCounter = 0;
 
-    const logFile = config.logFile
+    const logFile = config.logFile !== null
       ? (config.logFile.startsWith("/") ? config.logFile : resolve(input.directory, config.logFile))
       : null;
     const logLevel = config.logLevel;
@@ -134,7 +134,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
           ? (init.headers as Record<string, string>)["content-type"]
           : undefined;
 
-      if (!contentType?.includes("application/json")) {
+      if (contentType === undefined || contentType === null || !contentType.includes("application/json")) {
         return originalFetch(fetchInput, init);
       }
 
@@ -261,15 +261,15 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
       // Determine if this is a streaming response: check content-type,
       // fall back to checking if the request body had stream: true
       const isStreamingResponse =
-        responseContentType?.includes("text/event-stream") ||
+        (responseContentType !== null && responseContentType !== undefined && responseContentType.includes("text/event-stream")) ||
         (responseContentType === null && (body as Record<string, unknown>).stream === true);
 
-      if (responseContentType?.includes("application/json")) {
+      if (responseContentType !== null && responseContentType !== undefined && responseContentType.includes("application/json")) {
         // Non-streaming: deep-rehydrate the JSON response
         try {
           const resText = await response.text();
           if (resText.includes("<PII")) {
-            const piiMap = await (async () => {
+            const piiMap = await (async (): Promise<Map<string, string>> => {
               const stored = await piiStorage.load(sessionId);
               if (stored !== null) {
                 const key = await keyProvider.getKey();
@@ -315,7 +315,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         let piiMap: Map<string, string> | null = null;
 
         const transformStream = new TransformStream<Uint8Array, Uint8Array>({
-          async transform(chunk, controller) {
+          async transform(chunk, controller): Promise<void> {
             const text = decoder.decode(chunk, { stream: true });
 
             // Lazy-load PII map
@@ -374,7 +374,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                     }
 
                     if (textToEmit.length > 0) {
-                      const rehydrated = rehydrate(textToEmit, piiMap!);
+                      const rehydrated = rehydrate(textToEmit, piiMap);
                       output.push(`data: ${JSON.stringify({ ...eventObj, delta: rehydrated })}`);
                     } else {
                       output.push(`data: ${JSON.stringify({ ...eventObj, delta: "" })}`);
@@ -386,13 +386,13 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                   if (eventType === "response.function_call_arguments.done") {
                     const rebuilt = { ...eventObj };
                     if (fnCallArgBuffer.length > 0) {
-                      const flushed = rehydrate(fnCallArgBuffer, piiMap!);
+                      const flushed = rehydrate(fnCallArgBuffer, piiMap);
                       fnCallArgBuffer = "";
                       // Emit buffered content as a preceding delta
                       output.push(`data: ${JSON.stringify({ type: "response.function_call_arguments.delta", item_id: eventObj.item_id, output_index: eventObj.output_index, delta: flushed })}`);
                     }
                     if (typeof rebuilt.arguments === "string") {
-                      rebuilt.arguments = rehydrate(rebuilt.arguments, piiMap!);
+                      rebuilt.arguments = rehydrate(rebuilt.arguments, piiMap);
                     }
                     output.push(`data: ${JSON.stringify(rebuilt)}`);
                     continue;
@@ -401,7 +401,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                   // Other non-text events: deep-rehydrate all string values
                   const dataStr = JSON.stringify(parsed);
                   if (dataStr.includes("<PII") || dataStr.includes("&lt;PII")) {
-                    const rehydratedObj = deepRehydrateValue(parsed, piiMap!);
+                    const rehydratedObj = deepRehydrateValue(parsed, piiMap);
                     output.push(`data: ${JSON.stringify(rehydratedObj)}`);
                   } else {
                     output.push(line);
@@ -423,7 +423,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                 }
 
                 if (textToRehydrate.length > 0) {
-                  const rehydrated = rehydrate(textToRehydrate, piiMap!);
+                  const rehydrated = rehydrate(textToRehydrate, piiMap);
                   const rebuilt = provider.rebuildSSEDelta(parsed, rehydrated);
                   output.push(`data: ${JSON.stringify(rebuilt)}`);
                 } else {
@@ -439,7 +439,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
             controller.enqueue(encoder.encode(output.join("\n")));
           },
 
-          async flush(controller) {
+          flush(controller): void {
             if (tagBuffer.length > 0 && piiMap !== null) {
               const rehydrated = rehydrate(tagBuffer, piiMap);
               if (rehydrated.length > 0) {
