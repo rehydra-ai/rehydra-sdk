@@ -74,6 +74,8 @@
     "benchmark": "vitest bench",
     "benchmark:compare": "vitest bench --run test/benchmark/anonymizer-comparison.bench.ts",
     "benchmark:save": "mkdir -p benchmarks/history && vitest bench --run --outputJson=\"./benchmarks/history/$(date +%Y-%m-%d-%H%M%S).json\"",
+    "benchmark:memory": "npx tsx scripts/bench-memory.ts",
+    "benchmark:latency": "npx tsx scripts/bench-latency.ts",
     "test:streaming": "npx tsx scripts/test-streaming.ts",
     "test:proxy:openai": "npx tsx scripts/test-proxy-openai.ts",
     "test:proxy:anthropic": "npx tsx scripts/test-proxy-anthropic.ts",
