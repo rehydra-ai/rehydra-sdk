@@ -174,7 +174,8 @@ export class OpenAIProvider implements LLMContentProvider {
   matchesRequest(url: string, headers: Headers): boolean {
     if (url.includes("api.openai.com")) return true;
     const auth = headers.get("authorization");
-    if (auth !== null && auth.startsWith("Bearer sk-")) return true;
+    // Match OpenAI keys (Bearer sk-...) but not Anthropic keys (Bearer sk-ant-...)
+    if (auth !== null && auth.startsWith("Bearer sk-") && !auth.startsWith("Bearer sk-ant-")) return true;
     return false;
   }
 

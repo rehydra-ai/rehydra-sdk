@@ -11,10 +11,12 @@ export type { LLMContentProvider } from "./types.js";
 export { OpenAIProvider } from "./openai.js";
 export { AnthropicProvider } from "./anthropic.js";
 
-/** Built-in providers */
+/** Built-in providers — Anthropic first because its detection signals
+ *  (x-api-key, anthropic-version, api.anthropic.com) are strictly more
+ *  specific than OpenAI's (Bearer sk-...) */
 const PROVIDERS: LLMContentProvider[] = [
-  new OpenAIProvider(),
   new AnthropicProvider(),
+  new OpenAIProvider(),
 ];
 
 /**
@@ -63,5 +65,5 @@ export function detectProvider(
   }
 
   // Default to OpenAI format (most common / compatible)
-  return PROVIDERS[0]!;
+  return PROVIDERS.find((p) => p.name === "openai") ?? PROVIDERS[0]!;
 }
