@@ -4,27 +4,6 @@ Prevent your coding agent from leaking secrets to LLM providers.
 
 This plugin intercepts the conversation between [OpenCode](https://github.com/sst/opencode) and the LLM. Secrets from your `.env` files are replaced with placeholders before they leave your machine, and transparently restored before any tool (shell commands, file writes, etc.) executes locally.
 
-```
-You                          LLM Provider
- |                                |
- |  "set key AKIA4EXA..."        |
- |  ───────────────────►         |
- |        ┌─────────┐            |
- |        │ rehydra │            |
- |        └────┬────┘            |
- |             │                 |
- |  "set key <PII id="1"/>"     |
- |  ─────────────────────────►   |
- |                                |
- |  "$ zwrm set KEY <PII .../>"  |
- |  ◄─────────────────────────   |
- |        ┌─────────┐            |
- |        │ rehydra │            |
- |        └────┬────┘            |
- |             ▼                 |
- |  $ zwrm set KEY AKIA4EXA...  |
-```
-
 The LLM never sees real secret values. Your tools run with them.
 
 ## Install
