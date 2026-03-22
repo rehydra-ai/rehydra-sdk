@@ -332,7 +332,7 @@ export interface ExtractedTag {
  * - \u201D (") Right double curly quote
  * - \u201E („) Double low-9 quote (German)
  */
-const QUOTE_CHARS = "[\"'`\u00AB\u00BB\u2018\u2019\u201A\u201C\u201D\u201E]";
+const QUOTE_CHARS = "(?:\\\\\"|[\"'`\u00AB\u00BB\u2018\u2019\u201A\u201C\u201D\u201E])";
 
 /**
  * Whitespace pattern including various unicode spaces

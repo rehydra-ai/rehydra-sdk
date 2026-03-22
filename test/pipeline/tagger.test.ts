@@ -772,6 +772,17 @@ describe("Tagger", () => {
         expect(result).toBe("Visit Berlin soon");
       });
 
+      it("should rehydrate tags with JSON-escaped quotes", () => {
+        const piiMap: RawPIIMap = new Map([["ENV_VAR_SECRET_1", "sk-secret123"]]);
+        // OpenAI tool args contain backslash-escaped quotes
+        const mangledText =
+          'Set key <PII type=\\"ENV_VAR_SECRET\\" id=\\"1\\"/> now';
+
+        const result = rehydrate(mangledText, piiMap);
+
+        expect(result).toBe("Set key sk-secret123 now");
+      });
+
       it("should use strict mode when specified", () => {
         const piiMap: RawPIIMap = new Map([["PERSON_1", "John Doe"]]);
         // Using Unicode smart quotes: \u201C = " and \u201D = "
