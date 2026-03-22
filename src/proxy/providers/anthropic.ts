@@ -226,4 +226,15 @@ export class AnthropicProvider implements LLMContentProvider {
     }
     return event;
   }
+
+  extractSSEToolCallStop(data: unknown): number | null {
+    const event = data as AnthropicStreamEvent;
+    if (
+      event.type === "content_block_stop" &&
+      typeof event.index === "number"
+    ) {
+      return event.index;
+    }
+    return null;
+  }
 }

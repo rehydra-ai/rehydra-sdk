@@ -523,5 +523,100 @@ describe("createRehydraFetch", () => {
       // Even though the PII tag was split across chunks, it should be rehydrated
       expect(fullStream).toContain("john@example.com");
     });
+
+    it("should flush Anthropic tool call buffer before content_block_stop", async () => {
+      mockServer = await createCustomMockServer((body, res) => {
+        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const argsJson = `{"to":"${prompt}"}`;
+
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+        });
+
+        // Anthropic streaming format
+        res.write(`event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: "toolu_1", name: "send_email", input: {} },
+        })}\n\n`);
+
+        // Split the PII tag across two input_json_delta events
+        const piiStart = argsJson.indexOf("<PII");
+        const splitPoint = piiStart !== -1 ? piiStart + 4 : Math.floor(argsJson.length / 2);
+
+        res.write(`event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: argsJson.slice(0, splitPoint) },
+        })}\n\n`);
+
+        res.write(`event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: argsJson.slice(splitPoint) },
+        })}\n\n`);
+
+        // content_block_stop — buffer tail must be flushed BEFORE this
+        res.write(`event: content_block_stop\ndata: ${JSON.stringify({
+          type: "content_block_stop",
+          index: 0,
+        })}\n\n`);
+
+        res.write(`event: message_stop\ndata: ${JSON.stringify({
+          type: "message_stop",
+        })}\n\n`);
+
+        res.end();
+      });
+      const { port } = mockServer;
+
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "anthropic",
+        getSessionId: async () => "anthropic-stop-test",
+      });
+
+      const response = await rehydraFetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": "sk-ant-test",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          messages: [{ role: "user", content: "Email john@example.com" }],
+          stream: true,
+        }),
+      });
+
+      expect(response.ok).toBe(true);
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      const events: string[] = [];
+      let raw = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += decoder.decode(value, { stream: true });
+      }
+
+      // Parse SSE events from the raw stream
+      for (const block of raw.split("\n\n").filter(Boolean)) {
+        events.push(block);
+      }
+
+      // The rehydrated email must appear BEFORE content_block_stop
+      const stopIdx = events.findIndex((e) => e.includes("content_block_stop"));
+      const emailIdx = events.findIndex((e) => e.includes("john@example.com"));
+
+      expect(emailIdx).toBeGreaterThanOrEqual(0);
+      expect(stopIdx).toBeGreaterThan(0);
+      expect(emailIdx).toBeLessThan(stopIdx);
+    });
   });
 });

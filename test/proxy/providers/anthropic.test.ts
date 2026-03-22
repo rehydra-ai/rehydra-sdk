@@ -366,4 +366,25 @@ describe("AnthropicProvider", () => {
       expect(data.delta.partial_json).toBe("original");
     });
   });
+
+  describe("extractSSEToolCallStop", () => {
+    it("should return index for content_block_stop", () => {
+      const data = {
+        type: "content_block_stop",
+        index: 1,
+      };
+
+      expect(provider.extractSSEToolCallStop(data)).toBe(1);
+    });
+
+    it("should return null for other event types", () => {
+      expect(
+        provider.extractSSEToolCallStop({ type: "content_block_delta", index: 0 }),
+      ).toBeNull();
+
+      expect(
+        provider.extractSSEToolCallStop({ type: "message_stop" }),
+      ).toBeNull();
+    });
+  });
 });

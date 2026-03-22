@@ -333,7 +333,41 @@ function rehydrateSSEResponse(
           }
         }
 
-        // No content or tool call delta — pass through as-is
+        // Check for tool call block stop — flush buffer before forwarding
+        if (
+          provider.extractSSEToolCallStop !== undefined &&
+          provider.rebuildSSEToolCallDeltas !== undefined
+        ) {
+          const stopIndex = provider.extractSSEToolCallStop(parsed);
+          if (stopIndex !== null) {
+            const buffer = toolCallBuffers.get(stopIndex) ?? "";
+            if (buffer.length > 0) {
+              const piiMap = await getPiiMap();
+              const rehydrated = rehydrate(buffer, piiMap);
+              if (rehydrated.length > 0) {
+                const lastEvent = toolCallLastEvent.get(stopIndex);
+                if (lastEvent !== undefined) {
+                  const rebuilt = provider.rebuildSSEToolCallDeltas(
+                    lastEvent,
+                    new Map([[stopIndex, rehydrated]]),
+                  );
+                  controller.enqueue(
+                    encoder.encode(
+                      serializeSSEEvent({
+                        event: event.event,
+                        data: JSON.stringify(rebuilt),
+                      }),
+                    ),
+                  );
+                }
+              }
+              toolCallBuffers.delete(stopIndex);
+              toolCallLastEvent.delete(stopIndex);
+            }
+          }
+        }
+
+        // Pass through as-is
         controller.enqueue(encoder.encode(serializeSSEEvent(event)));
       }
     },

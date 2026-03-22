@@ -60,4 +60,11 @@ export interface LLMContentProvider {
     data: unknown,
     rehydratedArgs: Map<number, string>,
   ): unknown;
+
+  /**
+   * Detect a "tool call block finished" SSE event and return its block index.
+   * Used to flush per-index tag buffers before the stop event is forwarded.
+   * Returns null if this event is not a tool call stop signal.
+   */
+  extractSSEToolCallStop?(data: unknown): number | null;
 }
