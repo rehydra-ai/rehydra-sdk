@@ -1,0 +1,37 @@
+{
+  "name": "opencode-rehydra",
+  "version": "0.5.2",
+  "description": "Rehydra plugin for OpenCode — anonymizes secrets in LLM context using native plugin hooks",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "prepublishOnly": "cd ../.. && npm run build"
+  },
+  "keywords": [
+    "anonymization",
+    "pii",
+    "privacy",
+    "secrets",
+    "opencode",
+    "rehydra"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rehydra-ai/rehydra-sdk.git",
+    "directory": "packages/opencode-plugin"
+  },
+  "dependencies": {
+    "rehydra": "^0.5.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
