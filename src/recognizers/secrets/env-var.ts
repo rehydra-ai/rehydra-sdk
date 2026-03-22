@@ -15,7 +15,7 @@ const PLACEHOLDER_VALUES = new Set([
   "example", "test", "dummy", "placeholder",
 ]);
 
-const DEFAULT_MIN_LENGTH = 8;
+const DEFAULT_MIN_LENGTH = 4;
 
 export function createEnvVarSecretRecognizer(
   minValueLength: number = DEFAULT_MIN_LENGTH,

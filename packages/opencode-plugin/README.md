@@ -41,7 +41,7 @@ Add to `opencode.json`:
 }
 ```
 
-By default, the plugin reads `.env` in your project root. Secrets with values of 8+ characters are detected and scrubbed.
+By default, the plugin reads `.env` in your project root. Secrets with values of 4+ characters are detected and scrubbed.
 
 ## Configuration
 
@@ -57,7 +57,7 @@ export default createRehydraPlugin({
   // Always redact these values, even if not in .env
   redactValues: ["sk-live-abc123..."],
 
-  // Minimum value length to consider a secret (default: 8)
+  // Minimum value length to consider a secret (default: 4)
   minValueLength: 6,
 });
 ```

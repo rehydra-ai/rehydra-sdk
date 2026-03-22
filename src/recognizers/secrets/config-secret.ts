@@ -8,15 +8,15 @@ import type { Recognizer } from "../base.js";
 import { isSecretKeyName } from "./key-patterns.js";
 
 // JSON: "key": "value" or 'key': 'value'
-const JSON_SECRET = /["']([a-zA-Z_][a-zA-Z0-9_.-]*)["']\s*:\s*["']([^"'\n]{8,})["']/g;
+const JSON_SECRET = /["']([a-zA-Z_][a-zA-Z0-9_.-]*)["']\s*:\s*["']([^"'\n]{4,})["']/g;
 
 // YAML: key: value (unquoted or quoted)
-const YAML_SECRET = /^[ \t]*([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:\s*["']?([^\n"'#]{8,})["']?$/gm;
+const YAML_SECRET = /^[ \t]*([a-zA-Z_][a-zA-Z0-9_.-]*)\s*:\s*["']?([^\n"'#]{4,})["']?$/gm;
 
 // TOML: key = "value"
-const TOML_SECRET = /^[ \t]*([a-zA-Z_][a-zA-Z0-9_.-]*)\s*=\s*["']([^"'\n]{8,})["']$/gm;
+const TOML_SECRET = /^[ \t]*([a-zA-Z_][a-zA-Z0-9_.-]*)\s*=\s*["']([^"'\n]{4,})["']$/gm;
 
-const DEFAULT_MIN_LENGTH = 8;
+const DEFAULT_MIN_LENGTH = 4;
 
 export function createConfigSecretRecognizer(
   minValueLength: number = DEFAULT_MIN_LENGTH,

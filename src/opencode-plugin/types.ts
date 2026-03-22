@@ -15,7 +15,7 @@ export interface RehydraPluginOptions {
   /** Explicit values to always redact */
   redactValues?: string[];
 
-  /** Minimum value length to consider as a secret (default: 8) */
+  /** Minimum value length to consider as a secret (default: 4) */
   minValueLength?: number;
 
   /** Locale hint for anonymization */
