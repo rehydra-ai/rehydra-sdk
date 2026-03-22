@@ -67,7 +67,7 @@ describe("AnthropicProvider", () => {
       expect(texts).toEqual(["What is this?"]);
     });
 
-    it("should extract system prompt (string)", () => {
+    it("should skip system prompt (string)", () => {
       const body = {
         model: "claude-sonnet-4-20250514",
         system: "You are helpful.",
@@ -75,10 +75,10 @@ describe("AnthropicProvider", () => {
       };
 
       const texts = provider.extractRequestText(body);
-      expect(texts).toEqual(["You are helpful.", "Hi"]);
+      expect(texts).toEqual(["Hi"]);
     });
 
-    it("should extract system prompt (content blocks)", () => {
+    it("should skip system prompt (content blocks)", () => {
       const body = {
         model: "claude-sonnet-4-20250514",
         system: [{ type: "text", text: "You are helpful." }],
@@ -86,12 +86,12 @@ describe("AnthropicProvider", () => {
       };
 
       const texts = provider.extractRequestText(body);
-      expect(texts).toEqual(["You are helpful.", "Hi"]);
+      expect(texts).toEqual(["Hi"]);
     });
   });
 
   describe("rebuildRequestBody", () => {
-    it("should replace text in messages and system", () => {
+    it("should replace text in messages but skip system", () => {
       const body = {
         model: "claude-sonnet-4-20250514",
         system: "System prompt",
@@ -99,11 +99,10 @@ describe("AnthropicProvider", () => {
       };
 
       const result = provider.rebuildRequestBody(body, [
-        "Anonymized system",
         "Anonymized user",
       ]) as any;
 
-      expect(result.system).toBe("Anonymized system");
+      expect(result.system).toBe("System prompt");
       expect(result.messages[0].content).toBe("Anonymized user");
     });
 

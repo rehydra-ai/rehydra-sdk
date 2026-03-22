@@ -55,16 +55,8 @@ export class AnthropicProvider implements LLMContentProvider {
     const req = body as AnthropicMessagesRequest;
     const texts: string[] = [];
 
-    // Extract system prompt
-    if (typeof req.system === "string") {
-      texts.push(req.system);
-    } else if (Array.isArray(req.system)) {
-      for (const block of req.system) {
-        if (block.type === "text" && typeof block.text === "string") {
-          texts.push(block.text);
-        }
-      }
-    }
+    // Skip system prompt — it's the LLM provider's built-in prompt,
+    // never contains user secrets, and anonymizing it breaks the LLM.
 
     // Extract messages
     if (req.messages === undefined || !Array.isArray(req.messages)) return texts;
@@ -88,16 +80,7 @@ export class AnthropicProvider implements LLMContentProvider {
     const req = structuredClone(body) as AnthropicMessagesRequest;
     let idx = 0;
 
-    // Rebuild system prompt
-    if (typeof req.system === "string") {
-      req.system = anonymizedTexts[idx++]!;
-    } else if (Array.isArray(req.system)) {
-      for (const block of req.system) {
-        if (block.type === "text" && typeof block.text === "string") {
-          block.text = anonymizedTexts[idx++]!;
-        }
-      }
-    }
+    // system prompt skipped — matches extractRequestText
 
     // Rebuild messages
     for (const message of req.messages) {
