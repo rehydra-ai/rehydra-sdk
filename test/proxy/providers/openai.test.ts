@@ -178,4 +178,238 @@ describe("OpenAIProvider", () => {
       expect(provider.isStreamingRequest({})).toBe(false);
     });
   });
+
+  describe("extractResponseToolCalls", () => {
+    it("should extract tool call arguments from choices", () => {
+      const body = {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: {
+                    name: "send_email",
+                    arguments: '{"to":"<PII type=\\"EMAIL\\" id=\\"1\\"/>"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      const args = provider.extractResponseToolCalls(body);
+      expect(args).toEqual([
+        '{"to":"<PII type=\\"EMAIL\\" id=\\"1\\"/>"}',
+      ]);
+    });
+
+    it("should extract multiple tool calls across choices", () => {
+      const body = {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "fn1", arguments: '{"a":1}' },
+                },
+                {
+                  id: "call_2",
+                  type: "function",
+                  function: { name: "fn2", arguments: '{"b":2}' },
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      const args = provider.extractResponseToolCalls(body);
+      expect(args).toEqual(['{"a":1}', '{"b":2}']);
+    });
+
+    it("should return empty array when no tool calls", () => {
+      const body = {
+        choices: [
+          { message: { role: "assistant", content: "Hello" } },
+        ],
+      };
+
+      expect(provider.extractResponseToolCalls(body)).toEqual([]);
+    });
+  });
+
+  describe("rebuildResponseToolCalls", () => {
+    it("should replace tool call arguments", () => {
+      const body = {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: {
+                    name: "send_email",
+                    arguments: '{"to":"<PII type=\\"EMAIL\\" id=\\"1\\"/>"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      const result = provider.rebuildResponseToolCalls(body, [
+        '{"to":"john@example.com"}',
+      ]) as any;
+
+      expect(result.choices[0].message.tool_calls[0].function.arguments).toBe(
+        '{"to":"john@example.com"}',
+      );
+    });
+
+    it("should not mutate original body", () => {
+      const body = {
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_1",
+                  type: "function",
+                  function: { name: "fn", arguments: "original" },
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      provider.rebuildResponseToolCalls(body, ["modified"]);
+      expect(body.choices[0].message.tool_calls![0].function.arguments).toBe(
+        "original",
+      );
+    });
+  });
+
+  describe("extractSSEToolCallDeltas", () => {
+    it("should extract tool call argument deltas", () => {
+      const data = {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { arguments: '{"to":"' } },
+              ],
+            },
+          },
+        ],
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toEqual([
+        { index: 0, arguments: '{"to":"' },
+      ]);
+    });
+
+    it("should handle multiple tool calls in one chunk", () => {
+      const data = {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { arguments: "partial0" } },
+                { index: 1, function: { arguments: "partial1" } },
+              ],
+            },
+          },
+        ],
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toEqual([
+        { index: 0, arguments: "partial0" },
+        { index: 1, arguments: "partial1" },
+      ]);
+    });
+
+    it("should return null for first chunk with only id/name", () => {
+      const data = {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: "call_1", type: "function", function: { name: "send_email" } },
+              ],
+            },
+          },
+        ],
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toBeNull();
+    });
+
+    it("should return null when no tool calls in delta", () => {
+      const data = {
+        choices: [{ delta: { content: "Hello" } }],
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toBeNull();
+    });
+  });
+
+  describe("rebuildSSEToolCallDeltas", () => {
+    it("should replace arguments for specific indices", () => {
+      const data = {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { arguments: "anonymized" } },
+              ],
+            },
+          },
+        ],
+      };
+
+      const result = provider.rebuildSSEToolCallDeltas(
+        data,
+        new Map([[0, "rehydrated"]]),
+      ) as any;
+
+      expect(result.choices[0].delta.tool_calls[0].function.arguments).toBe(
+        "rehydrated",
+      );
+    });
+
+    it("should not mutate original data", () => {
+      const data = {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { arguments: "original" } },
+              ],
+            },
+          },
+        ],
+      };
+
+      provider.rebuildSSEToolCallDeltas(data, new Map([[0, "modified"]]));
+      expect(data.choices[0].delta.tool_calls[0].function.arguments).toBe(
+        "original",
+      );
+    });
+  });
 });

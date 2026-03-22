@@ -161,7 +161,26 @@ async function rehydrateJSONResponse(
   }
 
   // Rebuild response body
-  const rehydratedBody = provider.rebuildResponseBody(body, rehydratedTexts);
+  let rehydratedBody = provider.rebuildResponseBody(body, rehydratedTexts);
+
+  // Rehydrate tool call arguments
+  if (
+    provider.extractResponseToolCalls !== undefined &&
+    provider.rebuildResponseToolCalls !== undefined
+  ) {
+    const toolCallArgs = provider.extractResponseToolCalls(rehydratedBody);
+    if (toolCallArgs.length > 0) {
+      const rehydratedArgs: string[] = [];
+      for (const arg of toolCallArgs) {
+        const rehydrated = await session.rehydrate(arg);
+        rehydratedArgs.push(rehydrated);
+      }
+      rehydratedBody = provider.rebuildResponseToolCalls(
+        rehydratedBody,
+        rehydratedArgs,
+      );
+    }
+  }
 
   return new Response(JSON.stringify(rehydratedBody), {
     status: response.status,
@@ -184,8 +203,13 @@ function rehydrateSSEResponse(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
-  // Buffer for incomplete PII tags that span SSE chunks
+  // Buffer for incomplete PII tags that span SSE chunks (content)
   let tagBuffer = "";
+
+  // Per-index buffers for tool call argument fragments
+  const toolCallBuffers = new Map<number, string>();
+  // Last seen SSE event per tool call index (used as template during flush)
+  const toolCallLastEvent = new Map<number, unknown>();
 
   // We load the PII map once, lazily
   let piiMapPromise: Promise<RawPIIMap> | null = null;
@@ -225,42 +249,92 @@ function rehydrateSSEResponse(
           continue;
         }
 
+        // Try content delta first
         const delta = provider.extractSSEDelta(parsed);
-        if (delta === null) {
-          controller.enqueue(encoder.encode(serializeSSEEvent(event)));
+        if (delta !== null) {
+          // Handle incomplete PII tags spanning chunks
+          const fullText = tagBuffer + delta;
+          const incompleteTagIdx = fullText.lastIndexOf("<PII");
+          const lastCloseIdx = fullText.lastIndexOf("/>");
+
+          let textToRehydrate: string;
+          if (
+            incompleteTagIdx !== -1 &&
+            (lastCloseIdx === -1 || lastCloseIdx < incompleteTagIdx)
+          ) {
+            textToRehydrate = fullText.slice(0, incompleteTagIdx);
+            tagBuffer = fullText.slice(incompleteTagIdx);
+          } else {
+            textToRehydrate = fullText;
+            tagBuffer = "";
+          }
+
+          if (textToRehydrate.length > 0) {
+            const piiMap = await getPiiMap();
+            const rehydrated = rehydrate(textToRehydrate, piiMap);
+            const rebuilt = provider.rebuildSSEDelta(parsed, rehydrated);
+            controller.enqueue(
+              encoder.encode(
+                serializeSSEEvent({
+                  event: event.event,
+                  data: JSON.stringify(rebuilt),
+                }),
+              ),
+            );
+          }
           continue;
         }
 
-        // Handle incomplete PII tags spanning chunks
-        const fullText = tagBuffer + delta;
-        const incompleteTagIdx = fullText.lastIndexOf("<PII");
-        const lastCloseIdx = fullText.lastIndexOf("/>");
+        // Try tool call deltas
+        if (provider.extractSSEToolCallDeltas !== undefined && provider.rebuildSSEToolCallDeltas !== undefined) {
+          const toolDeltas = provider.extractSSEToolCallDeltas(parsed);
+          if (toolDeltas !== null && toolDeltas.length > 0) {
+            const rehydratedArgs = new Map<number, string>();
 
-        let textToRehydrate: string;
-        if (
-          incompleteTagIdx !== -1 &&
-          (lastCloseIdx === -1 || lastCloseIdx < incompleteTagIdx)
-        ) {
-          textToRehydrate = fullText.slice(0, incompleteTagIdx);
-          tagBuffer = fullText.slice(incompleteTagIdx);
-        } else {
-          textToRehydrate = fullText;
-          tagBuffer = "";
+            for (const td of toolDeltas) {
+              toolCallLastEvent.set(td.index, parsed);
+              const existing = toolCallBuffers.get(td.index) ?? "";
+              const fullText = existing + td.arguments;
+
+              const incompleteTagIdx = fullText.lastIndexOf("<PII");
+              const lastCloseIdx = fullText.lastIndexOf("/>");
+
+              let textToRehydrate: string;
+              if (
+                incompleteTagIdx !== -1 &&
+                (lastCloseIdx === -1 || lastCloseIdx < incompleteTagIdx)
+              ) {
+                textToRehydrate = fullText.slice(0, incompleteTagIdx);
+                toolCallBuffers.set(td.index, fullText.slice(incompleteTagIdx));
+              } else {
+                textToRehydrate = fullText;
+                toolCallBuffers.set(td.index, "");
+              }
+
+              if (textToRehydrate.length > 0) {
+                const piiMap = await getPiiMap();
+                const rehydrated = rehydrate(textToRehydrate, piiMap);
+                rehydratedArgs.set(td.index, rehydrated);
+              }
+            }
+
+            if (rehydratedArgs.size > 0) {
+              const rebuilt = provider.rebuildSSEToolCallDeltas(parsed, rehydratedArgs);
+              controller.enqueue(
+                encoder.encode(
+                  serializeSSEEvent({
+                    event: event.event,
+                    data: JSON.stringify(rebuilt),
+                  }),
+                ),
+              );
+            }
+            continue;
+          }
         }
 
-        if (textToRehydrate.length > 0) {
-          const piiMap = await getPiiMap();
-          const rehydrated = rehydrate(textToRehydrate, piiMap);
-          const rebuilt = provider.rebuildSSEDelta(parsed, rehydrated);
-          controller.enqueue(
-            encoder.encode(
-              serializeSSEEvent({
-                event: event.event,
-                data: JSON.stringify(rebuilt),
-              }),
-            ),
-          );
-        }
+        // No content or tool call delta — pass through as-is
+        controller.enqueue(encoder.encode(serializeSSEEvent(event)));
       }
     },
 
@@ -281,6 +355,37 @@ function rehydrateSSEResponse(
           );
         }
         tagBuffer = "";
+      }
+
+      // Flush remaining tool call buffers
+      if (
+        provider.rebuildSSEToolCallDeltas !== undefined
+      ) {
+        for (const [index, buffer] of toolCallBuffers) {
+          if (buffer.length > 0) {
+            const piiMap = await getPiiMap();
+            const rehydrated = rehydrate(buffer, piiMap);
+            if (rehydrated.length > 0) {
+              const lastEvent = toolCallLastEvent.get(index);
+              if (lastEvent !== undefined) {
+                const rebuilt = provider.rebuildSSEToolCallDeltas(
+                  lastEvent,
+                  new Map([[index, rehydrated]]),
+                );
+                controller.enqueue(
+                  encoder.encode(
+                    serializeSSEEvent({
+                      event: "message",
+                      data: JSON.stringify(rebuilt),
+                    }),
+                  ),
+                );
+              }
+            }
+          }
+        }
+        toolCallBuffers.clear();
+        toolCallLastEvent.clear();
       }
     },
   });
