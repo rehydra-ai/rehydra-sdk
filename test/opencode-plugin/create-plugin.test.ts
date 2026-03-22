@@ -631,7 +631,7 @@ describe("logging", () => {
     globalThis.fetch = originalFetch;
   });
 
-  async function sendRequest(logLevel: "normal" | "debug" | false, logFile: string): Promise<void> {
+  async function sendRequest(logLevel: "info" | "debug" | false, logFile: string): Promise<void> {
     globalThis.fetch = (async () =>
       new Response("{}", { headers: { "content-type": "application/json" } })
     ) as typeof fetch;
@@ -654,7 +654,7 @@ describe("logging", () => {
     const dir = makeTempDir();
     const logFile = join(dir, "normal.log");
 
-    await sendRequest("normal", logFile);
+    await sendRequest("info", logFile);
 
     const content = readFileSync(logFile, "utf-8");
     expect(content).toContain("scrubbed");
@@ -666,7 +666,7 @@ describe("logging", () => {
     const dir = makeTempDir();
     const logFile = join(dir, "normal-only.log");
 
-    await sendRequest("normal", logFile);
+    await sendRequest("info", logFile);
 
     const content = readFileSync(logFile, "utf-8");
     expect(content).toContain("scrubbed");

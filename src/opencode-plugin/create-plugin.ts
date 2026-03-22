@@ -72,7 +72,7 @@ function writeLog(
   entry: Record<string, unknown>,
 ): void {
   if (logFile === null || logLevel === false) return;
-  // "normal" logs at normal+debug, "debug" logs only at debug
+  // "info" logs at normal+debug, "debug" logs only at debug
   if (minLevel === "debug" && logLevel !== "debug") return;
   try {
     appendFileSync(logFile, JSON.stringify(entry, null, 2) + "\n---\n", "utf-8");
@@ -211,7 +211,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
 
       if (totalEntities > 0) {
         // Normal: compact one-liner with PII types and counts
-        writeLog(logFile, logLevel, "normal", {
+        writeLog(logFile, logLevel, "info", {
           timestamp: new Date().toISOString(),
           direction: "request",
           sessionId,
@@ -307,7 +307,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
 
             // Log rehydration results
             if (Object.keys(tracker.typeCounts).length > 0) {
-              writeLog(logFile, logLevel, "normal", {
+              writeLog(logFile, logLevel, "info", {
                 timestamp: new Date().toISOString(),
                 direction: "response",
                 sessionId,
@@ -514,7 +514,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
 
             // Log rehydration summary for this streaming response
             if (Object.keys(tracker.typeCounts).length > 0) {
-              writeLog(logFile, logLevel, "normal", {
+              writeLog(logFile, logLevel, "info", {
                 timestamp: new Date().toISOString(),
                 direction: "response",
                 sessionId,

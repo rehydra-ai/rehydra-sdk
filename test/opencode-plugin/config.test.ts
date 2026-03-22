@@ -23,10 +23,10 @@ describe("resolveConfig", () => {
 
   it("uses explicit log option", () => {
     const config = resolveConfig(
-      { provider: "openai", log: { level: "normal", file: "my.log" } },
+      { provider: "openai", log: { level: "info", file: "my.log" } },
       "/tmp",
     );
-    expect(config.logLevel).toBe("normal");
+    expect(config.logLevel).toBe("info");
     expect(config.logFile).toBe("my.log");
   });
 
@@ -61,22 +61,22 @@ describe("resolveConfig", () => {
     const config = resolveConfig(
       {
         provider: "openai",
-        log: { level: "normal", file: "new.log" },
+        log: { level: "info", file: "new.log" },
         logFile: "old.log",
       },
       "/tmp",
     );
-    expect(config.logLevel).toBe("normal");
+    expect(config.logLevel).toBe("info");
     expect(config.logFile).toBe("new.log");
   });
 
   it("picks up REHYDRA_LOG_LEVEL env var", () => {
-    process.env["REHYDRA_LOG_LEVEL"] = "normal";
+    process.env["REHYDRA_LOG_LEVEL"] = "info";
     const config = resolveConfig(
       { provider: "openai" },
       "/tmp",
     );
-    expect(config.logLevel).toBe("normal");
+    expect(config.logLevel).toBe("info");
     expect(config.logFile).toBe("rehydra.log"); // default file
   });
 
@@ -94,10 +94,10 @@ describe("resolveConfig", () => {
   it("explicit options take precedence over env vars", () => {
     process.env["REHYDRA_LOG_LEVEL"] = "debug";
     const config = resolveConfig(
-      { provider: "openai", log: { level: "normal", file: "opt.log" } },
+      { provider: "openai", log: { level: "info", file: "opt.log" } },
       "/tmp",
     );
-    expect(config.logLevel).toBe("normal");
+    expect(config.logLevel).toBe("info");
     expect(config.logFile).toBe("opt.log");
   });
 

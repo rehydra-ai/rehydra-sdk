@@ -4,11 +4,11 @@
 
 /**
  * Log level for the Rehydra plugin.
- * - "normal": Logs a summary per request (PII types scrubbed, counts)
+ * - "info": Logs a summary per request (PII types scrubbed, counts)
  * - "debug": Full diagnostic logging (extracted texts, diffs, raw input shapes)
  * - false: No logging
  */
-export type RehydraLogLevel = "normal" | "debug" | false;
+export type RehydraLogLevel = "info" | "debug" | false;
 
 /**
  * Configuration options for the Rehydra OpenCode plugin.
@@ -24,7 +24,7 @@ export interface RehydraPluginOptions {
   minValueLength?: number;
   /**
    * Log level and file path.
-   * - { level: "normal", file: "rehydra.log" } — compact summary per request
+   * - { level: "info", file: "rehydra.log" } — compact summary per request
    * - { level: "debug", file: "rehydra-debug.log" } — full diagnostic output
    * - false or omitted — no logging
    */
