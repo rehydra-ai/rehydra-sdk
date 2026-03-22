@@ -1,13 +1,13 @@
 {
-  "name": "@rehydra/cli",
+  "name": "@rehydra/opencode",
   "version": "0.6.0",
-  "description": "CLI for Rehydra PII anonymization — anonymize, rehydrate, and inspect text from the terminal",
+  "description": "Rehydra plugin for OpenCode — anonymizes secrets in LLM context using native plugin hooks",
   "type": "module",
-  "bin": {
-    "rehydra": "bin.js"
-  },
+  "main": "index.js",
+  "types": "index.d.ts",
   "files": [
-    "bin.js",
+    "index.js",
+    "index.d.ts",
     "README.md"
   ],
   "scripts": {
@@ -17,7 +17,8 @@
     "anonymization",
     "pii",
     "privacy",
-    "cli",
+    "secrets",
+    "opencode",
     "rehydra"
   ],
   "author": "",
@@ -25,7 +26,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/rehydra-ai/rehydra-sdk.git",
-    "directory": "packages/cli"
+    "directory": "packages/opencode-plugin"
   },
   "dependencies": {
     "rehydra": "^0.6.0"

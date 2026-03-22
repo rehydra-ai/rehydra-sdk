@@ -14,6 +14,34 @@ npm install rehydra
 
 **Works in Node.js, Bun, and browsers.** No data leaves your machine.
 
+## OpenCode Plugin
+
+Protect your coding agent from leaking secrets to LLM providers. Secrets from `.env` files are scrubbed before they leave your machine and restored before tools execute locally.
+
+```bash
+npm install @rehydra/opencode
+```
+
+```json
+{ "plugin": ["@rehydra/opencode"] }
+```
+
+See [@rehydra/opencode](packages/opencode-plugin/) for configuration and details.
+
+## CLI
+
+Anonymize and rehydrate text from the terminal:
+
+```bash
+npx @rehydra/cli anonymize "Email john@example.com about the meeting"
+# Email <PII type="EMAIL" id="1"/> about the meeting
+
+npx @rehydra/cli rehydrate --pii-map ./pii-map.json "Email <PII type=\"EMAIL\" id=\"1\"/> about the meeting"
+# Email john@example.com about the meeting
+```
+
+See [@rehydra/cli](packages/cli/) for all commands.
+
 ## Quick Start
 
 ```typescript

@@ -478,7 +478,7 @@ export class Anonymizer {
       const literalValues: string[] = [
         ...(this.secretsConfig.redactValues ?? []),
       ];
-      const minLength = this.secretsConfig.minValueLength ?? 8;
+      const minLength = this.secretsConfig.minValueLength ?? 4;
 
       // Parse .env files if provided
       if (this.secretsConfig.envFiles !== undefined && this.secretsConfig.envFiles.length > 0) {

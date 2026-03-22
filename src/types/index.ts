@@ -230,7 +230,7 @@ export interface SecretsConfig {
   redactValues?: string[];
   /** Additional key name patterns for ENV_VAR_SECRET / CONFIG_SECRET detection */
   secretKeyPatterns?: RegExp[];
-  /** Minimum value length to consider as a secret (default: 8) */
+  /** Minimum value length to consider as a secret (default: 4) */
   minValueLength?: number;
 }
 

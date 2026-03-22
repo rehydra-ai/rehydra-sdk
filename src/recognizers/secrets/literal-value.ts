@@ -19,7 +19,7 @@ const COMMON_NON_SECRET_VALUES = new Set([
  */
 export function createLiteralValueRecognizer(
   values: string[],
-  minLength: number = 8,
+  minLength: number = 4,
 ): Recognizer {
   // Filter out short and common values
   const secretValues = values.filter(

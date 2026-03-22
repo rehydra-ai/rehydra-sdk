@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLI_DIR="$ROOT/packages/cli"
+PLUGIN_DIR="$ROOT/packages/opencode-plugin"
 DRY_RUN=false
 TAG=""
 
@@ -10,7 +11,7 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
-Publish rehydra SDK and @rehydra/cli to npm.
+Publish rehydra SDK, @rehydra/cli, and @rehydra/opencode to npm.
 
 Options:
   --dry-run     Run npm publish with --dry-run (no actual publish)
@@ -39,12 +40,13 @@ fi
 # Read versions
 SDK_VERSION=$(node -p "require('$ROOT/package.json').version")
 CLI_VERSION=$(node -p "require('$CLI_DIR/package.json').version")
+PLUGIN_VERSION=$(node -p "require('$PLUGIN_DIR/package.json').version")
 
-echo "==> Versions: rehydra@$SDK_VERSION, @rehydra/cli@$CLI_VERSION"
+echo "==> Versions: rehydra@$SDK_VERSION, @rehydra/cli@$CLI_VERSION, @rehydra/opencode@$PLUGIN_VERSION"
 
-if [[ "$SDK_VERSION" != "$CLI_VERSION" ]]; then
-  echo "ERROR: Version mismatch — SDK is $SDK_VERSION but CLI is $CLI_VERSION"
-  echo "Update packages/cli/package.json to match."
+if [[ "$SDK_VERSION" != "$CLI_VERSION" || "$SDK_VERSION" != "$PLUGIN_VERSION" ]]; then
+  echo "ERROR: Version mismatch — SDK is $SDK_VERSION, CLI is $CLI_VERSION, plugin is $PLUGIN_VERSION"
+  echo "All packages must have the same version."
   exit 1
 fi
 
@@ -80,7 +82,22 @@ fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 echo "==> Publishing @rehydra/cli@$CLI_VERSION..."
 npm publish --access public "${PUBLISH_FLAGS[@]}"
 
+# Sync plugin dependency version to the just-published SDK version
+echo "==> Syncing @rehydra/opencode dependency to rehydra@^$SDK_VERSION..."
+cd "$PLUGIN_DIR"
+node -e "
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+pkg.dependencies.rehydra = '^$SDK_VERSION';
+fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+"
+
+# Publish plugin
+echo "==> Publishing @rehydra/opencode@$PLUGIN_VERSION..."
+npm publish --access public "${PUBLISH_FLAGS[@]}"
+
 echo ""
 echo "==> Done! Published:"
 echo "    rehydra@$SDK_VERSION"
 echo "    @rehydra/cli@$CLI_VERSION"
+echo "    @rehydra/opencode@$PLUGIN_VERSION"

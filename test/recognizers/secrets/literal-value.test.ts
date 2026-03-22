@@ -18,8 +18,8 @@ describe('Literal Value Recognizer', () => {
     });
 
     it('should filter out short values', () => {
-      const recognizer = createLiteralValueRecognizer(['short', 'ab', 'my-long-secret-value']);
-      const text = 'short ab my-long-secret-value';
+      const recognizer = createLiteralValueRecognizer(['abc', 'ab', 'my-long-secret-value']);
+      const text = 'abc ab my-long-secret-value';
       const matches = recognizer.find(text);
 
       expect(matches).toHaveLength(1);
