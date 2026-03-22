@@ -214,6 +214,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         writeLog(logFile, logLevel, "info", {
           timestamp: new Date().toISOString(),
           direction: "request",
+          provider: provider.name,
           sessionId,
           scrubbed: typeCounts,
         });
@@ -310,6 +311,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               writeLog(logFile, logLevel, "info", {
                 timestamp: new Date().toISOString(),
                 direction: "response",
+                provider: provider.name,
                 sessionId,
                 rehydrated: tracker.typeCounts,
               });
@@ -517,6 +519,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               writeLog(logFile, logLevel, "info", {
                 timestamp: new Date().toISOString(),
                 direction: "response",
+                provider: provider.name,
                 sessionId,
                 rehydrated: tracker.typeCounts,
                 channels: [...new Set(tracker.fragments.map((f) => f.channel))],
