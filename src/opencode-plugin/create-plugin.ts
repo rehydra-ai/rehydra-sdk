@@ -14,12 +14,45 @@ import {
 } from "../index.js";
 import { detectProvider } from "../proxy/index.js";
 import { AnonymizerSessionImpl } from "../storage/session.js";
-import { rehydrate, deepRehydrateValue } from "../pipeline/tagger.js";
+import { rehydrate, deepRehydrateValue, extractTags } from "../pipeline/tagger.js";
 import { decryptPIIMap } from "../crypto/index.js";
 import type { KeyProvider } from "../crypto/index.js";
 import type { PIIStorageProvider } from "../storage/types.js";
 import { resolveConfig } from "./config.js";
 import type { RehydraPluginOptions, RehydraLogLevel } from "./types.js";
+
+/**
+ * Tracks rehydration stats for response-side logging.
+ */
+interface RehydrationTracker {
+  typeCounts: Record<string, number>;
+  fragments: Array<{ channel: "text" | "tool_call" | "json"; tag: string; value: string }>;
+}
+
+function createTracker(): RehydrationTracker {
+  return { typeCounts: {}, fragments: [] };
+}
+
+/**
+ * Record rehydrations that occurred in a text by diffing the PII tags
+ * found in the original against the piiMap.
+ */
+function trackRehydrations(
+  tracker: RehydrationTracker,
+  original: string,
+  piiMap: Map<string, string>,
+  channel: "text" | "tool_call" | "json",
+): void {
+  const tags = extractTags(original);
+  for (const { type, id, matchedText } of tags) {
+    const key = `${type}:${id}`;
+    const value = piiMap.get(key);
+    if (value !== undefined) {
+      tracker.typeCounts[type] = (tracker.typeCounts[type] ?? 0) + 1;
+      tracker.fragments.push({ channel, tag: matchedText, value });
+    }
+  }
+}
 
 function mapProvider(
   provider: string,
@@ -180,6 +213,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         // Normal: compact one-liner with PII types and counts
         writeLog(logFile, logLevel, "normal", {
           timestamp: new Date().toISOString(),
+          direction: "request",
           sessionId,
           scrubbed: typeCounts,
         });
@@ -193,6 +227,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         }
         writeLog(logFile, logLevel, "debug", {
           timestamp: new Date().toISOString(),
+          direction: "request",
           sessionId,
           totalEntities,
           diffs,
@@ -246,11 +281,16 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               }
               return new Map<string, string>();
             })();
+
+            const tracker = createTracker();
+            trackRehydrations(tracker, resText, piiMap, "json");
+
             // Deep-rehydrate: parse JSON, walk all string values, rehydrate each
+            let rehydratedResponse: Response;
             try {
               const parsed = JSON.parse(resText) as unknown;
               const rehydratedObj = deepRehydrateValue(parsed, piiMap);
-              return new Response(JSON.stringify(rehydratedObj), {
+              rehydratedResponse = new Response(JSON.stringify(rehydratedObj), {
                 status: response.status,
                 statusText: response.statusText,
                 headers: response.headers,
@@ -258,12 +298,30 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
             } catch {
               // Fallback: string-level rehydration
               const rehydrated = rehydrate(resText, piiMap);
-              return new Response(rehydrated, {
+              rehydratedResponse = new Response(rehydrated, {
                 status: response.status,
                 statusText: response.statusText,
                 headers: response.headers,
               });
             }
+
+            // Log rehydration results
+            if (Object.keys(tracker.typeCounts).length > 0) {
+              writeLog(logFile, logLevel, "normal", {
+                timestamp: new Date().toISOString(),
+                direction: "response",
+                sessionId,
+                rehydrated: tracker.typeCounts,
+              });
+              writeLog(logFile, logLevel, "debug", {
+                timestamp: new Date().toISOString(),
+                direction: "response",
+                sessionId,
+                rehydratedFragments: tracker.fragments,
+              });
+            }
+
+            return rehydratedResponse;
           }
           return new Response(resText, {
             status: response.status,
@@ -285,6 +343,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         let lastTextEvent: unknown = null;
         let lastToolCallEvent: unknown = null;
         let lineBuffer = "";
+        const tracker = createTracker();
 
         const transformStream = new TransformStream<Uint8Array, Uint8Array>({
           async transform(chunk, controller): Promise<void> {
@@ -350,6 +409,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                     }
 
                     if (textToEmit.length > 0) {
+                      trackRehydrations(tracker, textToEmit, piiMap, "tool_call");
                       const rehydrated = rehydrate(textToEmit, piiMap);
                       output.push(`data: ${JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, rehydrated))}`);
                     } else {
@@ -361,12 +421,17 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                   // Tool call done: flush buffer + deep-rehydrate the done event
                   if (provider.isSSEToolCallDone(parsed)) {
                     if (fnCallArgBuffer.length > 0) {
+                      trackRehydrations(tracker, fnCallArgBuffer, piiMap, "tool_call");
                       const flushed = rehydrate(fnCallArgBuffer, piiMap);
                       fnCallArgBuffer = "";
                       // Emit buffered content as a preceding tool call delta
                       output.push(`data: ${JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, flushed))}`);
                     }
                     // Deep-rehydrate the done event (handles complete arguments fields)
+                    const doneStr = JSON.stringify(parsed);
+                    if (doneStr.includes("<PII") || doneStr.includes("&lt;PII")) {
+                      trackRehydrations(tracker, doneStr, piiMap, "tool_call");
+                    }
                     const rehydratedDone = deepRehydrateValue(parsed, piiMap);
                     output.push(`data: ${JSON.stringify(rehydratedDone)}`);
                     continue;
@@ -375,6 +440,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                   // Other non-text events: deep-rehydrate all string values
                   const dataStr = JSON.stringify(parsed);
                   if (dataStr.includes("<PII") || dataStr.includes("&lt;PII")) {
+                    trackRehydrations(tracker, dataStr, piiMap, "text");
                     const rehydratedObj = deepRehydrateValue(parsed, piiMap);
                     output.push(`data: ${JSON.stringify(rehydratedObj)}`);
                   } else {
@@ -398,6 +464,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                 }
 
                 if (textToRehydrate.length > 0) {
+                  trackRehydrations(tracker, textToRehydrate, piiMap, "text");
                   const rehydrated = rehydrate(textToRehydrate, piiMap);
                   const rebuilt = provider.rebuildSSEDelta(parsed, rehydrated);
                   output.push(`data: ${JSON.stringify(rebuilt)}`);
@@ -423,6 +490,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               lineBuffer = "";
             }
             if (tagBuffer.length > 0 && piiMap !== null && lastTextEvent !== null) {
+              trackRehydrations(tracker, tagBuffer, piiMap, "text");
               const rehydrated = rehydrate(tagBuffer, piiMap);
               if (rehydrated.length > 0) {
                 const rebuilt = provider.rebuildSSEDelta(lastTextEvent, rehydrated);
@@ -433,6 +501,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               tagBuffer = "";
             }
             if (fnCallArgBuffer.length > 0 && piiMap !== null && lastToolCallEvent !== null) {
+              trackRehydrations(tracker, fnCallArgBuffer, piiMap, "tool_call");
               const rehydrated = rehydrate(fnCallArgBuffer, piiMap);
               if (rehydrated.length > 0) {
                 const rebuilt = provider.rebuildSSEToolCallDelta(lastToolCallEvent, rehydrated);
@@ -441,6 +510,23 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                 );
               }
               fnCallArgBuffer = "";
+            }
+
+            // Log rehydration summary for this streaming response
+            if (Object.keys(tracker.typeCounts).length > 0) {
+              writeLog(logFile, logLevel, "normal", {
+                timestamp: new Date().toISOString(),
+                direction: "response",
+                sessionId,
+                rehydrated: tracker.typeCounts,
+                channels: [...new Set(tracker.fragments.map((f) => f.channel))],
+              });
+              writeLog(logFile, logLevel, "debug", {
+                timestamp: new Date().toISOString(),
+                direction: "response",
+                sessionId,
+                rehydratedFragments: tracker.fragments,
+              });
             }
           },
         });
