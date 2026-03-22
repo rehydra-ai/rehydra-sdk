@@ -628,3 +628,41 @@ export function rehydrate(
 
   return result;
 }
+
+/**
+ * Recursively walks a value and rehydrates all string properties
+ * that contain PII tags. Handles nested objects/arrays so that
+ * PII tags inside JSON-encoded strings (e.g., function call arguments)
+ * are rehydrated at the correct escaping level.
+ */
+export function deepRehydrateValue(
+  value: unknown,
+  piiMap: Map<string, string>,
+): unknown {
+  if (typeof value === "string") {
+    if (value.includes("<PII") || value.includes("&lt;PII")) {
+      return rehydrate(value, piiMap);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const result = value.map((item) => {
+      const r = deepRehydrateValue(item, piiMap);
+      if (r !== item) changed = true;
+      return r;
+    });
+    return changed ? result : value;
+  }
+  if (value !== null && typeof value === "object") {
+    let changed = false;
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const r = deepRehydrateValue(v, piiMap);
+      if (r !== v) changed = true;
+      result[k] = r;
+    }
+    return changed ? result : value;
+  }
+  return value;
+}

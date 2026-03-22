@@ -6,7 +6,7 @@
 
 import { createAnonymizer } from "../core/anonymizer.js";
 import { decryptPIIMap } from "../crypto/index.js";
-import { rehydrate } from "../pipeline/tagger.js";
+import { rehydrate, deepRehydrateValue } from "../pipeline/tagger.js";
 import type { RawPIIMap } from "../pipeline/tagger.js";
 import { AnonymizerSessionImpl } from "../storage/session.js";
 import { SSEParser, isSSEDone, serializeSSEEvent } from "./sse-parser.js";
@@ -208,8 +208,11 @@ function rehydrateSSEResponse(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
 
-  // Buffer for incomplete PII tags that span SSE chunks
+  // Buffers for incomplete PII tags that span SSE chunks
   let tagBuffer = "";
+  let fnCallArgBuffer = "";
+  let lastTextEvent: { event: string; parsed: unknown } | null = null;
+  let lastToolCallEvent: { event: string; parsed: unknown } | null = null;
 
   // We load the PII map once, lazily
   let piiMapPromise: Promise<RawPIIMap> | null = null;
@@ -224,6 +227,16 @@ function rehydrateSSEResponse(
       })();
     }
     return piiMapPromise;
+  }
+
+  function emitSSE(
+    controller: TransformStreamDefaultController<Uint8Array>,
+    event: string,
+    data: string,
+  ): void {
+    controller.enqueue(
+      encoder.encode(serializeSSEEvent({ event, data })),
+    );
   }
 
   const transformStream = new TransformStream<Uint8Array, Uint8Array>({
@@ -251,9 +264,61 @@ function rehydrateSSEResponse(
 
         const delta = provider.extractSSEDelta(parsed);
         if (delta === null) {
-          controller.enqueue(encoder.encode(serializeSSEEvent(event)));
+          // Tool call argument deltas: buffer + rehydrate with
+          // tag-splitting awareness (same logic as text deltas)
+          const toolDelta = provider.extractSSEToolCallDelta(parsed);
+          if (toolDelta !== null) {
+            lastToolCallEvent = { event: event.event, parsed };
+            const fullText = fnCallArgBuffer + toolDelta;
+            const incompleteTagIdx = fullText.lastIndexOf("<PII");
+            const lastCloseIdx = fullText.lastIndexOf("/>");
+
+            let textToEmit: string;
+            if (incompleteTagIdx !== -1 && (lastCloseIdx === -1 || lastCloseIdx < incompleteTagIdx)) {
+              textToEmit = fullText.slice(0, incompleteTagIdx);
+              fnCallArgBuffer = fullText.slice(incompleteTagIdx);
+            } else {
+              textToEmit = fullText;
+              fnCallArgBuffer = "";
+            }
+
+            if (textToEmit.length > 0) {
+              const piiMap = await getPiiMap();
+              const rehydrated = rehydrate(textToEmit, piiMap);
+              emitSSE(controller, event.event, JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, rehydrated)));
+            } else {
+              emitSSE(controller, event.event, JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, "")));
+            }
+            continue;
+          }
+
+          // Tool call done: flush buffer + deep-rehydrate the done event
+          if (provider.isSSEToolCallDone(parsed)) {
+            if (fnCallArgBuffer.length > 0) {
+              const piiMap = await getPiiMap();
+              const flushed = rehydrate(fnCallArgBuffer, piiMap);
+              fnCallArgBuffer = "";
+              emitSSE(controller, event.event, JSON.stringify(provider.rebuildSSEToolCallDelta(parsed, flushed)));
+            }
+            const piiMap = await getPiiMap();
+            const rehydratedDone = deepRehydrateValue(parsed, piiMap);
+            emitSSE(controller, event.event, JSON.stringify(rehydratedDone));
+            continue;
+          }
+
+          // Other non-text events: deep-rehydrate all string values
+          const dataStr = JSON.stringify(parsed);
+          if (dataStr.includes("<PII") || dataStr.includes("&lt;PII")) {
+            const piiMap = await getPiiMap();
+            const rehydratedObj = deepRehydrateValue(parsed, piiMap);
+            emitSSE(controller, event.event, JSON.stringify(rehydratedObj));
+          } else {
+            controller.enqueue(encoder.encode(serializeSSEEvent(event)));
+          }
           continue;
         }
+
+        lastTextEvent = { event: event.event, parsed };
 
         // Handle incomplete PII tags spanning chunks
         const fullText = tagBuffer + delta;
@@ -276,14 +341,11 @@ function rehydrateSSEResponse(
           const piiMap = await getPiiMap();
           const rehydrated = rehydrate(textToRehydrate, piiMap);
           const rebuilt = provider.rebuildSSEDelta(parsed, rehydrated);
-          controller.enqueue(
-            encoder.encode(
-              serializeSSEEvent({
-                event: event.event,
-                data: JSON.stringify(rebuilt),
-              }),
-            ),
-          );
+          emitSSE(controller, event.event, JSON.stringify(rebuilt));
+        } else {
+          // Buffering incomplete tag — emit empty delta
+          const rebuilt = provider.rebuildSSEDelta(parsed, "");
+          emitSSE(controller, event.event, JSON.stringify(rebuilt));
         }
       }
     },
@@ -296,15 +358,23 @@ function rehydrateSSEResponse(
         controller.enqueue(encoder.encode(serializeSSEEvent(event)));
       }
 
-      if (tagBuffer.length > 0) {
+      if (tagBuffer.length > 0 && lastTextEvent !== null) {
         const piiMap = await getPiiMap();
         const rehydrated = rehydrate(tagBuffer, piiMap);
         if (rehydrated.length > 0) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ content: rehydrated })}\n\n`),
-          );
+          const rebuilt = provider.rebuildSSEDelta(lastTextEvent.parsed, rehydrated);
+          emitSSE(controller, lastTextEvent.event, JSON.stringify(rebuilt));
         }
         tagBuffer = "";
+      }
+      if (fnCallArgBuffer.length > 0 && lastToolCallEvent !== null) {
+        const piiMap = await getPiiMap();
+        const rehydrated = rehydrate(fnCallArgBuffer, piiMap);
+        if (rehydrated.length > 0) {
+          const rebuilt = provider.rebuildSSEToolCallDelta(lastToolCallEvent.parsed, rehydrated);
+          emitSSE(controller, lastToolCallEvent.event, JSON.stringify(rebuilt));
+        }
+        fnCallArgBuffer = "";
       }
     },
   });
