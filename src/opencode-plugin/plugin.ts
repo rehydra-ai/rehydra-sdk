@@ -201,7 +201,8 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
           const session = getSession(msg.info.sessionID);
 
           for (const part of msg.parts) {
-            if (part.type === "text" && typeof part.text === "string") {
+            // Anonymize .text on any part type (text, reasoning, file, patch, etc.)
+            if (typeof part.text === "string") {
               const result = await session.anonymize(part.text, locale, policy);
               if (result.stats.totalEntities > 0) {
                 hasAnonymized = true;
@@ -215,8 +216,8 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
               part.text = result.anonymizedText;
             }
 
+            // Anonymize tool output
             if (
-              part.type === "tool" &&
               part.state !== undefined &&
               part.state.status === "completed" &&
               typeof part.state.output === "string"
