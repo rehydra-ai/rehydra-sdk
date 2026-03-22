@@ -111,7 +111,14 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         return originalFetch(fetchInput, init);
       }
 
-      const provider = detectProvider("", new Headers(), providerHint);
+      // Auto-detect provider from request URL, falling back to configured hint
+      const url = typeof fetchInput === "string"
+        ? fetchInput
+        : fetchInput instanceof URL ? fetchInput.toString() : fetchInput.url;
+      const reqHeaders = init.headers instanceof Headers
+        ? init.headers
+        : new Headers((init.headers as Record<string, string>) ?? {});
+      const provider = detectProvider(url, reqHeaders, providerHint);
       const texts = provider.extractRequestText(body);
 
       // Debug: log full request structure
