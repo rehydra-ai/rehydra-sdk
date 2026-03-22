@@ -54,6 +54,20 @@ interface Hooks {
 }
 
 /**
+ * Rehydrate a string, handling JSON-escaped quotes in PII tags.
+ * Some providers (e.g. OpenAI) produce tags like: <PII type=\"X\" id=\"1\"/>
+ */
+async function rehydrateString(
+  value: string,
+  session: AnonymizerSessionImpl,
+): Promise<string> {
+  const unescaped = value.includes('\\"')
+    ? value.replace(/\\"/g, '"')
+    : value;
+  return session.rehydrate(unescaped);
+}
+
+/**
  * Recursively rehydrate all string values containing PII tags.
  * Returns a new value (for strings/arrays) or the same object mutated in-place
  * (for plain objects). The in-place mutation is required because OpenCode's
@@ -66,7 +80,7 @@ async function deepRehydrate(
 ): Promise<unknown> {
   if (typeof value === "string") {
     if (value.includes("<PII")) {
-      return session.rehydrate(value);
+      return rehydrateString(value, session);
     }
     return value;
   }
@@ -283,11 +297,11 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
         let rehydrated = false;
 
         if (output.title.includes("<PII")) {
-          output.title = await session.rehydrate(output.title);
+          output.title = await rehydrateString(output.title, session);
           rehydrated = true;
         }
         if (output.output.includes("<PII")) {
-          output.output = await session.rehydrate(output.output);
+          output.output = await rehydrateString(output.output, session);
           rehydrated = true;
         }
 
@@ -305,7 +319,7 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
       ): Promise<void> => {
         if (output.text.includes("<PII")) {
           const session = getSession(input.sessionID);
-          output.text = await session.rehydrate(output.text);
+          output.text = await rehydrateString(output.text, session);
           log("debug", "rehydrated PII tags in LLM response text", {
             messageID: input.messageID,
           });
