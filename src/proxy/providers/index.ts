@@ -31,18 +31,20 @@ export function detectProvider(
   headers: Headers,
   hint?: "openai" | "anthropic" | "auto",
 ): LLMContentProvider {
-  // If a specific provider is requested, return it directly
-  if (hint && hint !== "auto") {
-    const provider = PROVIDERS.find((p) => p.name === hint);
-    if (provider) return provider;
-    throw new Error(`Unknown LLM provider: ${hint}`);
-  }
-
-  // Auto-detect from URL and headers
+  // Auto-detect from URL and headers first (takes priority over hint
+  // so that a plugin configured for one provider can correctly handle
+  // requests to a different provider's API)
   for (const provider of PROVIDERS) {
     if (provider.matchesRequest(url, headers)) {
       return provider;
     }
+  }
+
+  // Fall back to hint
+  if (hint && hint !== "auto") {
+    const provider = PROVIDERS.find((p) => p.name === hint);
+    if (provider) return provider;
+    throw new Error(`Unknown LLM provider: ${hint}`);
   }
 
   // Default to OpenAI format (most common / compatible)
