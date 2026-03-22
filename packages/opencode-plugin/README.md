@@ -38,6 +38,9 @@ export default createRehydraPlugin({
 
   // Minimum value length to consider a secret (default: 4)
   minValueLength: 6,
+
+  // Disable detection of specific PII types
+  disableTypes: ["URL", "IP_ADDRESS"],
 });
 ```
 
