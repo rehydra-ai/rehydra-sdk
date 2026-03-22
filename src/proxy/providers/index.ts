@@ -46,5 +46,8 @@ export function detectProvider(
   }
 
   // Default to OpenAI format (most common / compatible)
+  console.warn(
+    `[rehydra] No LLM provider matched for ${url} — defaulting to OpenAI format`,
+  );
   return PROVIDERS[0]!;
 }

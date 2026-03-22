@@ -20,6 +20,18 @@ function defaultGetSessionId(): string {
   return `rehydra-proxy-${Date.now()}-${++sessionCounter}`;
 }
 
+function errorResponse(status: number, message: string): Response {
+  return new Response(
+    JSON.stringify({
+      error: { message, type: "rehydra_proxy_error" },
+    }),
+    {
+      status,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
 /**
  * Creates a fetch-compatible function that automatically:
  * 1. Anonymizes text in outgoing LLM API requests
@@ -71,7 +83,14 @@ export function createRehydraFetch(
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
-    await ensureInitialized();
+    try {
+      await ensureInitialized();
+    } catch (err) {
+      initialized = false; // Allow retry on next request
+      const msg =
+        err instanceof Error ? err.message : "Initialization failed";
+      return errorResponse(503, `Rehydra proxy not ready: ${msg}`);
+    }
 
     const request = new Request(input, init);
 
@@ -93,7 +112,12 @@ export function createRehydraFetch(
     );
 
     // Parse request body
-    const body: unknown = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse(400, "Invalid JSON in request body");
+    }
 
     // Get session ID for PII map persistence
     const sessionId = await getSessionId(request);
@@ -106,38 +130,55 @@ export function createRehydraFetch(
       config.keyProvider,
     );
 
-    // Extract and anonymize text from the request
-    const texts = provider.extractRequestText(body);
-    const anonymizedTexts: string[] = [];
+    try {
+      // Extract and anonymize text from the request
+      const texts = provider.extractRequestText(body);
+      const anonymizedTexts: string[] = [];
 
-    for (const text of texts) {
-      const result = await session.anonymize(text, config.locale, config.policy);
-      anonymizedTexts.push(result.anonymizedText);
+      for (const text of texts) {
+        const result = await session.anonymize(
+          text,
+          config.locale,
+          config.policy,
+        );
+        anonymizedTexts.push(result.anonymizedText);
+      }
+
+      // Rebuild the request body with anonymized text
+      const anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
+
+      // Forward the anonymized request
+      const upstreamRequest = new Request(request, {
+        body: JSON.stringify(anonymizedBody),
+      });
+
+      let response: Response;
+      try {
+        response = await fetch(upstreamRequest);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "Upstream request failed";
+        return errorResponse(502, `Upstream LLM unreachable: ${msg}`);
+      }
+
+      // Determine if the response is a streaming SSE response
+      const responseContentType = response.headers.get("content-type");
+      const isSSE =
+        handleStreaming &&
+        provider.isStreamingRequest(body) &&
+        responseContentType !== null &&
+        responseContentType.includes("text/event-stream");
+
+      if (isSSE && response.body !== null) {
+        return rehydrateSSEResponse(response, session, provider, config);
+      }
+
+      return rehydrateJSONResponse(response, session, provider);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Internal proxy error";
+      return errorResponse(500, msg);
     }
-
-    // Rebuild the request body with anonymized text
-    const anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
-
-    // Forward the anonymized request
-    const upstreamRequest = new Request(request, {
-      body: JSON.stringify(anonymizedBody),
-    });
-
-    const response = await fetch(upstreamRequest);
-
-    // Determine if the response is a streaming SSE response
-    const responseContentType = response.headers.get("content-type");
-    const isSSE =
-      handleStreaming &&
-      provider.isStreamingRequest(body) &&
-      responseContentType !== null &&
-      responseContentType.includes("text/event-stream");
-
-    if (isSSE && response.body !== null) {
-      return rehydrateSSEResponse(response, session, provider, config);
-    }
-
-    return rehydrateJSONResponse(response, session, provider);
   };
 }
 
@@ -149,7 +190,19 @@ async function rehydrateJSONResponse(
   session: AnonymizerSessionImpl,
   provider: LLMContentProvider,
 ): Promise<Response> {
-  const body: unknown = await response.json();
+  // Read raw text so we can fall back to it if JSON parsing fails
+  const rawText = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(rawText);
+  } catch {
+    // Upstream returned invalid JSON — pass through unchanged
+    return new Response(rawText, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  }
 
   // Extract response text and rehydrate
   const responseTexts = provider.extractResponseText(body);
@@ -252,10 +305,16 @@ function rehydrateSSEResponse(
           continue;
         }
 
-        // Try content delta first
+        // Process content delta and tool call deltas from this event.
+        // In practice, LLM APIs send one or the other per event, but we
+        // handle both defensively by chaining rebuilds on the same parsed data.
+        let handled = false;
+        let rebuiltData: unknown = parsed;
+
+        // Content delta
         const delta = provider.extractSSEDelta(parsed);
         if (delta !== null) {
-          // Handle incomplete PII tags spanning chunks
+          handled = true;
           const fullText = tagBuffer + delta;
           const incompleteTagIdx = fullText.lastIndexOf("<PII");
           const lastCloseIdx = fullText.lastIndexOf("/>");
@@ -275,23 +334,15 @@ function rehydrateSSEResponse(
           if (textToRehydrate.length > 0) {
             const piiMap = await getPiiMap();
             const rehydrated = rehydrate(textToRehydrate, piiMap);
-            const rebuilt = provider.rebuildSSEDelta(parsed, rehydrated);
-            controller.enqueue(
-              encoder.encode(
-                serializeSSEEvent({
-                  event: event.event,
-                  data: JSON.stringify(rebuilt),
-                }),
-              ),
-            );
+            rebuiltData = provider.rebuildSSEDelta(rebuiltData, rehydrated);
           }
-          continue;
         }
 
-        // Try tool call deltas
+        // Tool call deltas
         if (provider.extractSSEToolCallDeltas !== undefined && provider.rebuildSSEToolCallDeltas !== undefined) {
           const toolDeltas = provider.extractSSEToolCallDeltas(parsed);
           if (toolDeltas !== null && toolDeltas.length > 0) {
+            handled = true;
             const rehydratedArgs = new Map<number, string>();
 
             for (const td of toolDeltas) {
@@ -325,18 +376,26 @@ function rehydrateSSEResponse(
             }
 
             if (rehydratedArgs.size > 0) {
-              const rebuilt = provider.rebuildSSEToolCallDeltas(parsed, rehydratedArgs);
-              controller.enqueue(
-                encoder.encode(
-                  serializeSSEEvent({
-                    event: event.event,
-                    data: JSON.stringify(rebuilt),
-                  }),
-                ),
+              rebuiltData = provider.rebuildSSEToolCallDeltas(
+                rebuiltData,
+                rehydratedArgs,
               );
             }
-            continue;
           }
+        }
+
+        if (handled) {
+          if (rebuiltData !== parsed) {
+            controller.enqueue(
+              encoder.encode(
+                serializeSSEEvent({
+                  event: event.event,
+                  data: JSON.stringify(rebuiltData),
+                }),
+              ),
+            );
+          }
+          continue;
         }
 
         // Check for tool call block stop — flush buffer before forwarding

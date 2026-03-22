@@ -187,8 +187,12 @@ export class AnthropicProvider implements LLMContentProvider {
             string,
             unknown
           >;
-        } catch {
+        } catch (err) {
           // Leave input unchanged if rehydrated JSON is invalid
+          console.warn(
+            `[rehydra] Failed to parse rehydrated tool_use input at index ${idx}:`,
+            err instanceof Error ? err.message : err,
+          );
           idx++;
         }
       }

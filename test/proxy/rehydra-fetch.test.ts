@@ -231,6 +231,89 @@ describe("createRehydraFetch", () => {
     expect(exists).toBe(true);
   });
 
+  describe("error handling", () => {
+    it("should return 400 for malformed request body", async () => {
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+      });
+
+      // Send a POST with invalid JSON but correct content-type
+      const response = await rehydraFetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not valid json{{{",
+      });
+
+      expect(response.status).toBe(400);
+      const data = await response.json() as any;
+      expect(data.error.type).toBe("rehydra_proxy_error");
+      expect(data.error.message).toContain("Invalid JSON");
+    });
+
+    it("should return 502 when upstream is unreachable", async () => {
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+      });
+
+      // Point to a port that's not listening
+      const response = await rehydraFetch("http://127.0.0.1:1/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "test",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      });
+
+      expect(response.status).toBe(502);
+      const data = await response.json() as any;
+      expect(data.error.type).toBe("rehydra_proxy_error");
+      expect(data.error.message).toContain("Upstream LLM unreachable");
+    });
+
+    it("should pass through upstream response when it returns invalid JSON", async () => {
+      mockServer = await createMockLLMServer();
+      // Override the server to return invalid JSON
+      mockServer.server.close();
+      mockServer = await new Promise((resolve) => {
+        const server = createServer((_req, res) => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end("not json at all");
+        });
+        server.listen(0, "127.0.0.1", () => {
+          const addr = server.address();
+          const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+          resolve({ server, port, receivedBodies: [] });
+        });
+      });
+      const { port } = mockServer;
+
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+      });
+
+      const response = await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "test",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      });
+
+      // Should pass through the raw response, not crash
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toBe("not json at all");
+    });
+  });
+
   describe("tool call rehydration", () => {
     /**
      * Create a mock server with a custom request handler.
