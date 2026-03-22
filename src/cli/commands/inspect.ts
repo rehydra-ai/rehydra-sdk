@@ -3,10 +3,12 @@ import {
   type AnonymizerConfig,
   type NERConfig,
   type SecretsConfig,
+  type AnonymizationPolicy,
   PIIType,
   mergePolicy,
   InMemoryKeyProvider,
 } from "../../index.js";
+import { SECRET_PII_TYPES } from "../../types/pii-types.js";
 import type { ParsedOptions } from "../main.js";
 import { CLIError } from "../utils/errors.js";
 import { readInput, writeOutput } from "../utils/io.js";
@@ -69,9 +71,20 @@ export async function inspectCommand(
     config.secrets = secretsConfig;
   }
 
-  const policy = options.types !== undefined
-    ? mergePolicy({ enabledTypes: parseTypes(options.types) })
-    : undefined;
+  let policy: Partial<AnonymizationPolicy> | undefined;
+  if (options.types !== undefined) {
+    const enabledTypes = parseTypes(options.types);
+    const policyPartial: Partial<AnonymizationPolicy> = { enabledTypes };
+    if (options.secrets) {
+      const regexEnabledTypes = new Set(enabledTypes);
+      for (const t of SECRET_PII_TYPES) {
+        enabledTypes.add(t);
+        regexEnabledTypes.add(t);
+      }
+      policyPartial.regexEnabledTypes = regexEnabledTypes;
+    }
+    policy = mergePolicy(policyPartial);
+  }
 
   const anonymizer = createAnonymizer(config);
   await anonymizer.initialize();

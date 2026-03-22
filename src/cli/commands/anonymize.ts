@@ -11,6 +11,7 @@ import {
   uint8ArrayToBase64,
   ConfigKeyProvider,
 } from "../../index.js";
+import { SECRET_PII_TYPES } from "../../types/pii-types.js";
 import {
   createAnonymizerStream,
   type StreamConfig,
@@ -122,9 +123,22 @@ export async function anonymizeCommand(
   const anonMode = validateMode(options.mode);
   const format = validateFormat(options.format);
   const { keyProvider, keyBase64 } = setupKeyProvider(options);
-  const policy = options.types !== undefined
-    ? mergePolicy({ enabledTypes: parseTypes(options.types) })
-    : undefined;
+  let policy: Partial<AnonymizationPolicy> | undefined;
+  if (options.types !== undefined) {
+    const enabledTypes = parseTypes(options.types);
+    const policyPartial: Partial<AnonymizationPolicy> = { enabledTypes };
+    // When --secrets is active, include secret types in both enabledTypes
+    // and regexEnabledTypes so the policy override doesn't suppress them
+    if (options.secrets) {
+      const regexEnabledTypes = new Set(enabledTypes);
+      for (const t of SECRET_PII_TYPES) {
+        enabledTypes.add(t);
+        regexEnabledTypes.add(t);
+      }
+      policyPartial.regexEnabledTypes = regexEnabledTypes;
+    }
+    policy = mergePolicy(policyPartial);
+  }
 
   // Use streaming for file inputs, batch for stdin
   if (filePath !== undefined) {

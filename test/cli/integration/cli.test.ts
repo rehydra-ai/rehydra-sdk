@@ -185,6 +185,38 @@ describe("CLI integration", () => {
     });
   });
 
+  describe("--types with --secrets", () => {
+    it("should detect secrets when both --types and --secrets are used", async () => {
+      const piiMapPath = join(testDir, "pii.json");
+      // Input with both an email (--types EMAIL) and a secret (--secrets)
+      const input = "Contact test@example.com\nAPI_KEY=sk-proj-1234567890abcdef";
+      const result = await runCLI(
+        ["anonymize", "--types", "EMAIL", "--secrets", "--pii-map", piiMapPath, "-q"],
+        { input },
+      );
+
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
+      // Email should be anonymized
+      expect(result.stdout).toContain('<PII type="EMAIL"');
+      expect(result.stdout).not.toContain("test@example.com");
+      // Secret should also be anonymized
+      expect(result.stdout).not.toContain("sk-proj-1234567890abcdef");
+    });
+
+    it("should detect secrets in inspect when both --types and --secrets are used", async () => {
+      const input = "Contact test@example.com\nAPI_KEY=sk-proj-1234567890abcdef";
+      const result = await runCLI(
+        ["inspect", "--types", "EMAIL", "--secrets", "-q"],
+        { input },
+      );
+
+      expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
+      // Both EMAIL and secret types should be detected
+      expect(result.stdout).toContain("EMAIL");
+      expect(result.stdout).toContain("sk-proj-1234567890abcdef");
+    });
+  });
+
   describe("error handling", () => {
     it("should error on unknown command", async () => {
       const result = await runCLI(["foobar"]);
