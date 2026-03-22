@@ -74,11 +74,10 @@ export const phoneRecognizer: Recognizer = {
         if (!this.validate!(phone)) continue;
 
         // Reject if embedded in a hex string (SHA256 hashes, Docker image IDs)
-        const beforeIdx = match.index - 1;
-        const afterIdx = match.index + phone.length;
-        const charBefore = beforeIdx >= 0 ? text[beforeIdx] : '';
-        const charAfter = afterIdx < text.length ? text[afterIdx] : '';
-        if (/[a-f]/.test(charBefore ?? '') || /[a-f]/.test(charAfter ?? '')) continue;
+        // Require at least 2 consecutive hex-only chars [a-f] adjacent to the match
+        const beforeStr = text.slice(Math.max(0, match.index - 2), match.index);
+        const afterStr = text.slice(match.index + phone.length, match.index + phone.length + 2);
+        if (/[a-f]{2}$/i.test(beforeStr) || /^[a-f]{2}/i.test(afterStr)) continue;
 
         seen.add(key);
         matches.push({

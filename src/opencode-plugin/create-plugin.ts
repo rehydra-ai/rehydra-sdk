@@ -313,6 +313,8 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         let tagBuffer = "";
         let fnCallArgBuffer = "";
         let piiMap: Map<string, string> | null = null;
+        let lastTextEvent: unknown = null;
+        let lastToolCallEvent: unknown = null;
 
         const transformStream = new TransformStream<Uint8Array, Uint8Array>({
           async transform(chunk, controller): Promise<void> {
@@ -358,6 +360,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                   // tag-splitting awareness (same logic as text deltas)
                   const toolDelta = provider.extractSSEToolCallDelta(parsed);
                   if (toolDelta !== null) {
+                    lastToolCallEvent = parsed;
                     const fullText = fnCallArgBuffer + toolDelta;
                     const incompleteTagIdx = fullText.lastIndexOf("<PII");
                     const lastCloseIdx = fullText.lastIndexOf("/>");
@@ -405,6 +408,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
                   continue;
                 }
 
+                lastTextEvent = parsed;
                 const fullText = tagBuffer + delta;
                 const incompleteTagIdx = fullText.lastIndexOf("<PII");
                 const lastCloseIdx = fullText.lastIndexOf("/>");
@@ -436,20 +440,22 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
           },
 
           flush(controller): void {
-            if (tagBuffer.length > 0 && piiMap !== null) {
+            if (tagBuffer.length > 0 && piiMap !== null && lastTextEvent !== null) {
               const rehydrated = rehydrate(tagBuffer, piiMap);
               if (rehydrated.length > 0) {
+                const rebuilt = provider.rebuildSSEDelta(lastTextEvent, rehydrated);
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ content: rehydrated })}\n\n`),
+                  encoder.encode(`data: ${JSON.stringify(rebuilt)}\n\n`),
                 );
               }
               tagBuffer = "";
             }
-            if (fnCallArgBuffer.length > 0 && piiMap !== null) {
+            if (fnCallArgBuffer.length > 0 && piiMap !== null && lastToolCallEvent !== null) {
               const rehydrated = rehydrate(fnCallArgBuffer, piiMap);
               if (rehydrated.length > 0) {
+                const rebuilt = provider.rebuildSSEToolCallDelta(lastToolCallEvent, rehydrated);
                 controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "response.function_call_arguments.delta", delta: rehydrated })}\n\n`),
+                  encoder.encode(`data: ${JSON.stringify(rebuilt)}\n\n`),
                 );
               }
               fnCallArgBuffer = "";
