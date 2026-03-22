@@ -30,6 +30,7 @@ export function detectProvider(
   url: string,
   headers: Headers,
   hint?: "openai" | "anthropic" | "auto",
+  body?: unknown,
 ): LLMContentProvider {
   // Auto-detect from URL and headers first (takes priority over hint
   // so that a plugin configured for one provider can correctly handle
@@ -37,6 +38,20 @@ export function detectProvider(
   for (const provider of PROVIDERS) {
     if (provider.matchesRequest(url, headers)) {
       return provider;
+    }
+  }
+
+  // Detect from request body structure as a fallback — handles cases
+  // where URL is a proxy and headers are stripped/modified
+  if (body !== null && body !== undefined && typeof body === "object") {
+    const obj = body as Record<string, unknown>;
+    // Anthropic: top-level "system" + "messages" (no "input")
+    if ("system" in obj && "messages" in obj && !("input" in obj)) {
+      return PROVIDERS.find((p) => p.name === "anthropic") ?? PROVIDERS[0]!;
+    }
+    // OpenAI Responses API: "input" (no "messages")
+    if ("input" in obj && !("messages" in obj)) {
+      return PROVIDERS.find((p) => p.name === "openai") ?? PROVIDERS[0]!;
     }
   }
 

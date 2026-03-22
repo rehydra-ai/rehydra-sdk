@@ -151,7 +151,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
       const reqHeaders = init.headers instanceof Headers
         ? init.headers
         : new Headers((init.headers as Record<string, string>) ?? {});
-      const provider = detectProvider(url, reqHeaders, providerHint);
+      const provider = detectProvider(url, reqHeaders, providerHint, body);
       const texts = provider.extractRequestText(body);
 
       // Debug: log full request structure

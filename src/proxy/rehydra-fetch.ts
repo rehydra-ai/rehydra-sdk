@@ -85,13 +85,6 @@ export function createRehydraFetch(
       return fetch(request);
     }
 
-    // Detect the LLM provider
-    const provider = detectProvider(
-      request.url,
-      request.headers,
-      config.provider,
-    );
-
     // Parse request body
     let body: unknown;
     try {
@@ -104,6 +97,15 @@ export function createRehydraFetch(
     if (body === null || body === undefined || typeof body !== "object") {
       return fetch(new Request(input, init));
     }
+
+    // Detect the LLM provider (after body parsing so body structure
+    // can be used as a fallback when URL/headers don't match)
+    const provider = detectProvider(
+      request.url,
+      request.headers,
+      config.provider,
+      body,
+    );
 
     // Get session ID for PII map persistence
     const sessionId = await getSessionId(request);
