@@ -3,7 +3,7 @@
  * Handles Anthropic Messages API format.
  */
 
-import type { LLMContentProvider } from "./types.js";
+import type { LLMContentProvider, ToolCallDelta } from "./types.js";
 
 interface AnthropicMessage {
   role: string;
@@ -14,6 +14,9 @@ interface AnthropicContentBlock {
   type: string;
   text?: string;
   source?: unknown;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
 }
 
 interface AnthropicMessagesRequest {
@@ -31,9 +34,11 @@ interface AnthropicMessagesResponse {
 
 interface AnthropicStreamEvent {
   type: string;
+  index?: number;
   delta?: {
     type?: string;
     text?: string;
+    partial_json?: string;
     [key: string]: unknown;
   };
   content_block?: AnthropicContentBlock;
@@ -156,5 +161,84 @@ export class AnthropicProvider implements LLMContentProvider {
   isStreamingRequest(body: unknown): boolean {
     const req = body as AnthropicMessagesRequest;
     return req.stream === true;
+  }
+
+  extractResponseToolCalls(body: unknown): string[] {
+    const res = body as AnthropicMessagesResponse;
+    if (res.content === undefined || !Array.isArray(res.content)) return [];
+
+    const args: string[] = [];
+    for (const block of res.content) {
+      if (block.type === "tool_use" && block.input !== undefined) {
+        args.push(JSON.stringify(block.input));
+      }
+    }
+    return args;
+  }
+
+  rebuildResponseToolCalls(body: unknown, rehydratedArgs: string[]): unknown {
+    const res = structuredClone(body) as AnthropicMessagesResponse;
+    let idx = 0;
+
+    for (const block of res.content) {
+      if (block.type === "tool_use" && block.input !== undefined) {
+        try {
+          block.input = JSON.parse(rehydratedArgs[idx++]!) as Record<
+            string,
+            unknown
+          >;
+        } catch (err) {
+          // Leave input unchanged if rehydrated JSON is invalid
+          console.warn(
+            `[rehydra] Failed to parse rehydrated tool_use input at index ${idx}:`,
+            err instanceof Error ? err.message : err,
+          );
+          idx++;
+        }
+      }
+    }
+    return res;
+  }
+
+  extractSSEToolCallDeltas(data: unknown): ToolCallDelta[] | null {
+    const event = data as AnthropicStreamEvent;
+    if (
+      event.type === "content_block_delta" &&
+      event.delta?.type === "input_json_delta" &&
+      typeof event.delta.partial_json === "string" &&
+      event.delta.partial_json.length > 0 &&
+      typeof event.index === "number"
+    ) {
+      return [{ index: event.index, arguments: event.delta.partial_json }];
+    }
+    return null;
+  }
+
+  rebuildSSEToolCallDeltas(
+    data: unknown,
+    rehydratedArgs: Map<number, string>,
+  ): unknown {
+    const event = structuredClone(data) as AnthropicStreamEvent;
+    if (
+      event.delta?.type === "input_json_delta" &&
+      typeof event.index === "number"
+    ) {
+      const rehydrated = rehydratedArgs.get(event.index);
+      if (rehydrated !== undefined) {
+        event.delta.partial_json = rehydrated;
+      }
+    }
+    return event;
+  }
+
+  extractSSEToolCallStop(data: unknown): number | null {
+    const event = data as AnthropicStreamEvent;
+    if (
+      event.type === "content_block_stop" &&
+      typeof event.index === "number"
+    ) {
+      return event.index;
+    }
+    return null;
   }
 }

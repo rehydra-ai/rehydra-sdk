@@ -4,6 +4,17 @@
  */
 
 /**
+ * A tool call argument fragment from an SSE chunk.
+ * Keyed by index to support interleaved multi-tool streaming.
+ */
+export interface ToolCallDelta {
+  /** Numeric index identifying which tool call this fragment belongs to */
+  index: number;
+  /** The partial argument string fragment */
+  arguments: string;
+}
+
+/**
  * Interface for extracting and rebuilding text content from LLM API requests/responses.
  * Each provider handles a specific LLM API format (OpenAI, Anthropic, etc.).
  */
@@ -34,4 +45,26 @@ export interface LLMContentProvider {
 
   /** Check if the request body indicates a streaming response is expected */
   isStreamingRequest(body: unknown): boolean;
+
+  /** Extract tool call argument strings from a non-streaming response body for rehydration */
+  extractResponseToolCalls?(body: unknown): string[];
+
+  /** Rebuild the response body with rehydrated tool call arguments (same order as extractResponseToolCalls) */
+  rebuildResponseToolCalls?(body: unknown, rehydratedArgs: string[]): unknown;
+
+  /** Extract tool call argument deltas from a parsed SSE data payload */
+  extractSSEToolCallDeltas?(data: unknown): ToolCallDelta[] | null;
+
+  /** Rebuild an SSE data payload with rehydrated tool call arguments */
+  rebuildSSEToolCallDeltas?(
+    data: unknown,
+    rehydratedArgs: Map<number, string>,
+  ): unknown;
+
+  /**
+   * Detect a "tool call block finished" SSE event and return its block index.
+   * Used to flush per-index tag buffers before the stop event is forwarded.
+   * Returns null if this event is not a tool call stop signal.
+   */
+  extractSSEToolCallStop?(data: unknown): number | null;
 }

@@ -186,4 +186,205 @@ describe("AnthropicProvider", () => {
       expect(provider.isStreamingRequest({})).toBe(false);
     });
   });
+
+  describe("extractResponseToolCalls", () => {
+    it("should extract tool_use input as JSON strings", () => {
+      const body = {
+        content: [
+          { type: "text", text: "I'll send that email." },
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "send_email",
+            input: { to: '<PII type="EMAIL" id="1"/>' },
+          },
+        ],
+      };
+
+      const args = provider.extractResponseToolCalls(body);
+      expect(args).toEqual([
+        JSON.stringify({ to: '<PII type="EMAIL" id="1"/>' }),
+      ]);
+    });
+
+    it("should extract multiple tool_use blocks", () => {
+      const body = {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "fn1",
+            input: { a: 1 },
+          },
+          {
+            type: "tool_use",
+            id: "toolu_2",
+            name: "fn2",
+            input: { b: 2 },
+          },
+        ],
+      };
+
+      const args = provider.extractResponseToolCalls(body);
+      expect(args).toEqual(['{"a":1}', '{"b":2}']);
+    });
+
+    it("should return empty array when no tool_use blocks", () => {
+      const body = {
+        content: [{ type: "text", text: "Hello" }],
+      };
+
+      expect(provider.extractResponseToolCalls(body)).toEqual([]);
+    });
+  });
+
+  describe("rebuildResponseToolCalls", () => {
+    it("should parse rehydrated JSON back into input", () => {
+      const body = {
+        content: [
+          { type: "text", text: "Sending email." },
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "send_email",
+            input: { to: "anonymized" },
+          },
+        ],
+      };
+
+      const result = provider.rebuildResponseToolCalls(body, [
+        '{"to":"john@example.com"}',
+      ]) as any;
+
+      expect(result.content[1].input).toEqual({ to: "john@example.com" });
+    });
+
+    it("should not mutate original body", () => {
+      const body = {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "fn",
+            input: { key: "original" },
+          },
+        ],
+      };
+
+      provider.rebuildResponseToolCalls(body, ['{"key":"modified"}']);
+      expect(body.content[0].input).toEqual({ key: "original" });
+    });
+
+    it("should leave input unchanged on invalid JSON", () => {
+      const body = {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "fn",
+            input: { key: "value" },
+          },
+        ],
+      };
+
+      const result = provider.rebuildResponseToolCalls(body, [
+        "not valid json{",
+      ]) as any;
+
+      expect(result.content[0].input).toEqual({ key: "value" });
+    });
+  });
+
+  describe("extractSSEToolCallDeltas", () => {
+    it("should extract input_json_delta events", () => {
+      const data = {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "input_json_delta", partial_json: '{"to":"' },
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toEqual([
+        { index: 1, arguments: '{"to":"' },
+      ]);
+    });
+
+    it("should return null for text_delta events", () => {
+      const data = {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Hello" },
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toBeNull();
+    });
+
+    it("should return null for content_block_start", () => {
+      const data = {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "tool_use", id: "toolu_1", name: "fn", input: {} },
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toBeNull();
+    });
+
+    it("should return null for empty partial_json", () => {
+      const data = {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "input_json_delta", partial_json: "" },
+      };
+
+      expect(provider.extractSSEToolCallDeltas(data)).toBeNull();
+    });
+  });
+
+  describe("rebuildSSEToolCallDeltas", () => {
+    it("should replace partial_json for matching index", () => {
+      const data = {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "input_json_delta", partial_json: "anonymized" },
+      };
+
+      const result = provider.rebuildSSEToolCallDeltas(
+        data,
+        new Map([[1, "rehydrated"]]),
+      ) as any;
+
+      expect(result.delta.partial_json).toBe("rehydrated");
+    });
+
+    it("should not mutate original data", () => {
+      const data = {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "input_json_delta", partial_json: "original" },
+      };
+
+      provider.rebuildSSEToolCallDeltas(data, new Map([[1, "modified"]]));
+      expect(data.delta.partial_json).toBe("original");
+    });
+  });
+
+  describe("extractSSEToolCallStop", () => {
+    it("should return index for content_block_stop", () => {
+      const data = {
+        type: "content_block_stop",
+        index: 1,
+      };
+
+      expect(provider.extractSSEToolCallStop(data)).toBe(1);
+    });
+
+    it("should return null for other event types", () => {
+      expect(
+        provider.extractSSEToolCallStop({ type: "content_block_delta", index: 0 }),
+      ).toBeNull();
+
+      expect(
+        provider.extractSSEToolCallStop({ type: "message_stop" }),
+      ).toBeNull();
+    });
+  });
 });
