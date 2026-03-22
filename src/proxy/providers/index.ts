@@ -1,6 +1,7 @@
 /**
  * LLM Content Provider Registry
- * Auto-detects the appropriate provider based on request URL/headers.
+ * Auto-detects the appropriate provider from request body structure,
+ * URL, headers, or a caller-provided hint (in that priority order).
  */
 
 import type { LLMContentProvider } from "./types.js";
@@ -11,22 +12,17 @@ export type { LLMContentProvider } from "./types.js";
 export { OpenAIProvider } from "./openai.js";
 export { AnthropicProvider } from "./anthropic.js";
 
-/** Built-in providers — Anthropic first because its detection signals
- *  (x-api-key, anthropic-version, api.anthropic.com) are strictly more
- *  specific than OpenAI's (Bearer sk-...) */
-const PROVIDERS: LLMContentProvider[] = [
-  new AnthropicProvider(),
-  new OpenAIProvider(),
-];
+const ANTHROPIC = new AnthropicProvider();
+const OPENAI = new OpenAIProvider();
 
 /**
  * Detect the appropriate LLM content provider for a request.
  *
- * @param url - The request URL
- * @param headers - The request headers
- * @param hint - Optional provider name hint (skips auto-detection)
- * @returns The matching provider
- * @throws Error if no provider matches and no hint given
+ * Detection priority:
+ * 1. Body structure (most reliable — survives proxies/gateways)
+ * 2. URL and headers
+ * 3. Caller-provided hint
+ * 4. Default: OpenAI (most common format)
  */
 export function detectProvider(
   url: string,
@@ -34,36 +30,29 @@ export function detectProvider(
   hint?: "openai" | "anthropic" | "auto",
   body?: unknown,
 ): LLMContentProvider {
-  // Auto-detect from URL and headers first (takes priority over hint
-  // so that a plugin configured for one provider can correctly handle
-  // requests to a different provider's API)
-  for (const provider of PROVIDERS) {
-    if (provider.matchesRequest(url, headers)) {
-      return provider;
-    }
-  }
-
-  // Detect from request body structure as a fallback — handles cases
-  // where URL is a proxy and headers are stripped/modified
+  // 1. Body structure — unambiguous, proxy-safe
   if (body !== null && body !== undefined && typeof body === "object") {
     const obj = body as Record<string, unknown>;
-    // Anthropic: top-level "system" + "messages" (no "input")
-    if ("system" in obj && "messages" in obj && !("input" in obj)) {
-      return PROVIDERS.find((p) => p.name === "anthropic") ?? PROVIDERS[0]!;
+
+    // Anthropic: top-level "system" field (OpenAI uses role:"system" inside messages)
+    if ("system" in obj && "messages" in obj) {
+      return ANTHROPIC;
     }
-    // OpenAI Responses API: "input" (no "messages")
+
+    // OpenAI Responses API: "input" without "messages"
     if ("input" in obj && !("messages" in obj)) {
-      return PROVIDERS.find((p) => p.name === "openai") ?? PROVIDERS[0]!;
+      return OPENAI;
     }
   }
 
-  // Fall back to hint
-  if (hint && hint !== "auto") {
-    const provider = PROVIDERS.find((p) => p.name === hint);
-    if (provider) return provider;
-    throw new Error(`Unknown LLM provider: ${hint}`);
-  }
+  // 2. URL and headers
+  if (ANTHROPIC.matchesRequest(url, headers)) return ANTHROPIC;
+  if (OPENAI.matchesRequest(url, headers)) return OPENAI;
 
-  // Default to OpenAI format (most common / compatible)
-  return PROVIDERS.find((p) => p.name === "openai") ?? PROVIDERS[0]!;
+  // 3. Caller hint
+  if (hint === "anthropic") return ANTHROPIC;
+  if (hint === "openai") return OPENAI;
+
+  // 4. Default
+  return OPENAI;
 }
