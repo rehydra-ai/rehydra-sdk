@@ -315,6 +315,7 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
         let piiMap: Map<string, string> | null = null;
         let lastTextEvent: unknown = null;
         let lastToolCallEvent: unknown = null;
+        let lineBuffer = "";
 
         const transformStream = new TransformStream<Uint8Array, Uint8Array>({
           async transform(chunk, controller): Promise<void> {
@@ -335,8 +336,13 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               }
             }
 
-            // Parse SSE events from chunk
-            const lines = text.split("\n");
+            // Buffer incomplete lines across chunks: SSE data lines can be
+            // split across TCP segments, so we only process lines terminated
+            // by \n and carry the trailing fragment to the next chunk.
+            const combined = lineBuffer + text;
+            const parts = combined.split("\n");
+            lineBuffer = parts.pop() ?? "";
+            const lines = parts;
             const output: string[] = [];
 
             for (const line of lines) {
@@ -436,10 +442,17 @@ export function createRehydraPlugin(options: RehydraPluginOptions) {
               }
             }
 
-            controller.enqueue(encoder.encode(output.join("\n")));
+            if (output.length > 0) {
+              controller.enqueue(encoder.encode(output.join("\n") + "\n"));
+            }
           },
 
           flush(controller): void {
+            // Flush any trailing incomplete line from the buffer
+            if (lineBuffer.length > 0) {
+              controller.enqueue(encoder.encode(lineBuffer));
+              lineBuffer = "";
+            }
             if (tagBuffer.length > 0 && piiMap !== null && lastTextEvent !== null) {
               const rehydrated = rehydrate(tagBuffer, piiMap);
               if (rehydrated.length > 0) {

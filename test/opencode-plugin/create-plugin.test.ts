@@ -427,6 +427,200 @@ describe("SSE streaming rehydration", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Anthropic SSE streaming rehydration
+// ---------------------------------------------------------------------------
+
+describe("Anthropic SSE streaming rehydration", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /** SSE response with Content-Type: text/event-stream (like Anthropic) */
+  function anthropicSSEResponse(lines: string[]): Response {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller): void {
+        controller.enqueue(encoder.encode(lines.join("\n") + "\n"));
+        controller.close();
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  }
+
+  async function sendAnthropicSSE(lines: string[]): Promise<string> {
+    globalThis.fetch = (async () => anthropicSSEResponse(lines)) as typeof fetch;
+
+    const plugin = createRehydraPlugin({ provider: "anthropic", redactValues: [SECRET] });
+    plugin({ directory: "/tmp/test" });
+
+    const res = await globalThis.fetch("https://api.anthropic.com/v1/messages",
+      jsonPost({
+        model: "claude-3",
+        messages: [{ role: "user", content: `Use ${SECRET}` }],
+        stream: true,
+      }));
+
+    return readStream(res);
+  }
+
+  it("rehydrates Anthropic text_delta containing PII tags", async () => {
+    const tag = '<PII type="ENV_VAR_SECRET" id="1"/>';
+    const text = await sendAnthropicSSE([
+      sseLine({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: `Your key is ${tag}` } }),
+    ]);
+    expect(text).toContain(SECRET);
+    expect(text).not.toContain("ENV_VAR_SECRET");
+  });
+
+  it("rehydrates PII tags split across Anthropic text deltas", async () => {
+    const text = await sendAnthropicSSE([
+      sseLine({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Key: <PII" } }),
+      sseLine({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: ' type="ENV_VAR_SECRET" id="1"/>' } }),
+    ]);
+    expect(text).toContain(SECRET);
+  });
+
+  it("passes through Anthropic non-delta events", async () => {
+    const text = await sendAnthropicSSE([
+      sseLine({ type: "message_start", message: { id: "msg_1" } }),
+      sseLine({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+      sseLine({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } }),
+      sseLine({ type: "content_block_stop", index: 0 }),
+      sseLine({ type: "message_stop" }),
+    ]);
+    expect(text).toContain("message_start");
+    expect(text).toContain("Hello");
+    expect(text).toContain("content_block_stop");
+  });
+
+  it("rehydrates Anthropic tool use input_json_delta", async () => {
+    const text = await sendAnthropicSSE([
+      sseLine({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"cmd":"echo ' } }),
+      sseLine({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '<PII type=\\"ENV_VAR_SECRET\\" id=\\"1\\"/>' } }),
+      sseLine({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '"}' } }),
+      sseLine({ type: "content_block_stop", index: 1 }),
+    ]);
+    expect(text).toContain(SECRET);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SSE chunk splitting (data lines split across TCP segments)
+// ---------------------------------------------------------------------------
+
+describe("SSE chunk splitting", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /** SSE response that delivers data as multiple separate chunks */
+  function multiChunkSSEResponse(chunks: string[]): Response {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller): void {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  }
+
+  it("handles Anthropic data line split across two chunks", async () => {
+    // Simulate a TCP segment boundary splitting a data line mid-JSON
+    const fullLine = JSON.stringify({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: '<PII type="ENV_VAR_SECRET" id="1"/>' },
+    });
+    const splitAt = Math.floor(fullLine.length / 2);
+
+    globalThis.fetch = (async () => multiChunkSSEResponse([
+      `data: ${fullLine.slice(0, splitAt)}`,
+      `${fullLine.slice(splitAt)}\n\n`,
+    ])) as typeof fetch;
+
+    const plugin = createRehydraPlugin({ provider: "anthropic", redactValues: [SECRET] });
+    plugin({ directory: "/tmp/test" });
+
+    const res = await globalThis.fetch("https://api.anthropic.com/v1/messages",
+      jsonPost({
+        model: "claude-3",
+        messages: [{ role: "user", content: `Use ${SECRET}` }],
+        stream: true,
+      }));
+
+    const text = await readStream(res);
+    expect(text).toContain(SECRET);
+    expect(text).not.toContain("ENV_VAR_SECRET");
+  });
+
+  it("handles multiple complete events across chunks", async () => {
+    const event1 = `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello " } })}\n`;
+    const event2 = `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "world" } })}\n`;
+
+    globalThis.fetch = (async () => multiChunkSSEResponse([
+      event1,
+      event2,
+    ])) as typeof fetch;
+
+    const plugin = createRehydraPlugin({ provider: "anthropic", redactValues: [SECRET] });
+    plugin({ directory: "/tmp/test" });
+
+    const res = await globalThis.fetch("https://api.anthropic.com/v1/messages",
+      jsonPost({
+        model: "claude-3",
+        messages: [{ role: "user", content: `Use ${SECRET}` }],
+        stream: true,
+      }));
+
+    const text = await readStream(res);
+    expect(text).toContain("Hello ");
+    expect(text).toContain("world");
+  });
+
+  it("handles data line split across three chunks", async () => {
+    const fullLine = JSON.stringify({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: '<PII type="ENV_VAR_SECRET" id="1"/> is the key' },
+    });
+    const third = Math.floor(fullLine.length / 3);
+
+    globalThis.fetch = (async () => multiChunkSSEResponse([
+      `data: ${fullLine.slice(0, third)}`,
+      fullLine.slice(third, third * 2),
+      `${fullLine.slice(third * 2)}\n\n`,
+    ])) as typeof fetch;
+
+    const plugin = createRehydraPlugin({ provider: "anthropic", redactValues: [SECRET] });
+    plugin({ directory: "/tmp/test" });
+
+    const res = await globalThis.fetch("https://api.anthropic.com/v1/messages",
+      jsonPost({
+        model: "claude-3",
+        messages: [{ role: "user", content: `Use ${SECRET}` }],
+        stream: true,
+      }));
+
+    const text = await readStream(res);
+    expect(text).toContain(SECRET);
+    expect(text).not.toContain("ENV_VAR_SECRET");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
 
