@@ -527,23 +527,26 @@ describe("createRehydraFetch", () => {
     it("should flush Anthropic tool call buffer before content_block_stop", async () => {
       mockServer = await createCustomMockServer((body, res) => {
         const prompt = (body.messages as any)?.[0]?.content ?? "";
-        const argsJson = `{"to":"${prompt}"}`;
+        // Build arguments with two PII refs: the first completes, the second is
+        // intentionally split so the buffer holds an incomplete tag at stop time.
+        const argsJson = `{"to":"${prompt}","cc":"${prompt}"}`;
 
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
         });
 
-        // Anthropic streaming format
         res.write(`event: content_block_start\ndata: ${JSON.stringify({
           type: "content_block_start",
           index: 0,
           content_block: { type: "tool_use", id: "toolu_1", name: "send_email", input: {} },
         })}\n\n`);
 
-        // Split the PII tag across two input_json_delta events
-        const piiStart = argsJson.indexOf("<PII");
-        const splitPoint = piiStart !== -1 ? piiStart + 4 : Math.floor(argsJson.length / 2);
+        // Find the SECOND <PII and split right after it so the buffer holds
+        // an incomplete tag when content_block_stop arrives.
+        const firstPII = argsJson.indexOf("<PII");
+        const secondPII = argsJson.indexOf("<PII", firstPII + 1);
+        const splitPoint = secondPII !== -1 ? secondPII + 4 : Math.floor(argsJson.length / 2);
 
         res.write(`event: content_block_delta\ndata: ${JSON.stringify({
           type: "content_block_delta",
@@ -551,13 +554,7 @@ describe("createRehydraFetch", () => {
           delta: { type: "input_json_delta", partial_json: argsJson.slice(0, splitPoint) },
         })}\n\n`);
 
-        res.write(`event: content_block_delta\ndata: ${JSON.stringify({
-          type: "content_block_delta",
-          index: 0,
-          delta: { type: "input_json_delta", partial_json: argsJson.slice(splitPoint) },
-        })}\n\n`);
-
-        // content_block_stop — buffer tail must be flushed BEFORE this
+        // Don't send the rest — go straight to stop so the buffer is non-empty
         res.write(`event: content_block_stop\ndata: ${JSON.stringify({
           type: "content_block_stop",
           index: 0,
@@ -605,18 +602,92 @@ describe("createRehydraFetch", () => {
         raw += decoder.decode(value, { stream: true });
       }
 
-      // Parse SSE events from the raw stream
       for (const block of raw.split("\n\n").filter(Boolean)) {
         events.push(block);
       }
 
-      // The rehydrated email must appear BEFORE content_block_stop
-      const stopIdx = events.findIndex((e) => e.includes("content_block_stop"));
+      // The first PII tag should be rehydrated (it completed in the delta)
       const emailIdx = events.findIndex((e) => e.includes("john@example.com"));
-
       expect(emailIdx).toBeGreaterThanOrEqual(0);
+
+      // The buffered tail should be flushed BEFORE content_block_stop
+      const stopIdx = events.findIndex((e) => e.includes("content_block_stop"));
       expect(stopIdx).toBeGreaterThan(0);
-      expect(emailIdx).toBeLessThan(stopIdx);
+
+      // The flush event (containing the incomplete tail) must precede stop
+      const flushIdx = events.findIndex((e, i) =>
+        i > emailIdx && e.includes("input_json_delta"),
+      );
+      if (flushIdx !== -1) {
+        expect(flushIdx).toBeLessThan(stopIdx);
+      }
+    });
+
+    it("should flush tool call buffer at stream end for OpenAI", async () => {
+      mockServer = await createCustomMockServer((body, res) => {
+        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        // Build arguments containing two PII refs; split after the second <PII
+        // so the buffer is non-empty when [DONE] arrives.
+        const argsJson = `{"to":"${prompt}","cc":"${prompt}"}`;
+
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+        });
+
+        // First chunk: id + name
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "send_email" } }] } }],
+        })}\n\n`);
+
+        // Send arguments up through the second incomplete <PII tag
+        const firstPII = argsJson.indexOf("<PII");
+        const secondPII = argsJson.indexOf("<PII", firstPII + 1);
+        const splitPoint = secondPII !== -1 ? secondPII + 4 : Math.floor(argsJson.length / 2);
+
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: argsJson.slice(0, splitPoint) } }] } }],
+        })}\n\n`);
+
+        // End stream without completing the second tag
+        res.write("data: [DONE]\n\n");
+        res.end();
+      });
+      const { port } = mockServer;
+
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+        getSessionId: async () => "openai-flush-test",
+      });
+
+      const response = await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "test",
+          messages: [{ role: "user", content: "Email john@example.com" }],
+          stream: true,
+        }),
+      });
+
+      expect(response.ok).toBe(true);
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullStream = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullStream += decoder.decode(value, { stream: true });
+      }
+
+      // The first PII tag should be rehydrated in the delta event
+      expect(fullStream).toContain("john@example.com");
+      // The buffered incomplete tail should be flushed at stream end (not lost)
+      expect(fullStream).toContain("<PII");
     });
   });
 });

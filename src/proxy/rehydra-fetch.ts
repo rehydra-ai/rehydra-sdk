@@ -209,7 +209,10 @@ function rehydrateSSEResponse(
   // Per-index buffers for tool call argument fragments
   const toolCallBuffers = new Map<number, string>();
   // Last seen SSE event per tool call index (used as template during flush)
-  const toolCallLastEvent = new Map<number, unknown>();
+  const toolCallLastEvent = new Map<
+    number,
+    { sseEvent: string; parsed: unknown }
+  >();
 
   // We load the PII map once, lazily
   let piiMapPromise: Promise<RawPIIMap> | null = null;
@@ -292,7 +295,10 @@ function rehydrateSSEResponse(
             const rehydratedArgs = new Map<number, string>();
 
             for (const td of toolDeltas) {
-              toolCallLastEvent.set(td.index, parsed);
+              toolCallLastEvent.set(td.index, {
+                sseEvent: event.event,
+                parsed,
+              });
               const existing = toolCallBuffers.get(td.index) ?? "";
               const fullText = existing + td.arguments;
 
@@ -345,16 +351,16 @@ function rehydrateSSEResponse(
               const piiMap = await getPiiMap();
               const rehydrated = rehydrate(buffer, piiMap);
               if (rehydrated.length > 0) {
-                const lastEvent = toolCallLastEvent.get(stopIndex);
-                if (lastEvent !== undefined) {
+                const last = toolCallLastEvent.get(stopIndex);
+                if (last !== undefined) {
                   const rebuilt = provider.rebuildSSEToolCallDeltas(
-                    lastEvent,
+                    last.parsed,
                     new Map([[stopIndex, rehydrated]]),
                   );
                   controller.enqueue(
                     encoder.encode(
                       serializeSSEEvent({
-                        event: event.event,
+                        event: last.sseEvent,
                         data: JSON.stringify(rebuilt),
                       }),
                     ),
@@ -400,16 +406,16 @@ function rehydrateSSEResponse(
             const piiMap = await getPiiMap();
             const rehydrated = rehydrate(buffer, piiMap);
             if (rehydrated.length > 0) {
-              const lastEvent = toolCallLastEvent.get(index);
-              if (lastEvent !== undefined) {
+              const last = toolCallLastEvent.get(index);
+              if (last !== undefined) {
                 const rebuilt = provider.rebuildSSEToolCallDeltas(
-                  lastEvent,
+                  last.parsed,
                   new Map([[index, rehydrated]]),
                 );
                 controller.enqueue(
                   encoder.encode(
                     serializeSSEEvent({
-                      event: "message",
+                      event: last.sseEvent,
                       data: JSON.stringify(rebuilt),
                     }),
                   ),
