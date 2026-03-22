@@ -4,6 +4,10 @@
 
 import type { AnonymizerConfig } from "../core/anonymizer.js";
 import type { AnonymizationPolicy } from "../types/index.js";
+import type { PIIType } from "../types/pii-types.js";
+
+/** PII type names as strings, for convenience in plugin config */
+export type PIITypeName = `${PIIType}`;
 
 /**
  * Configuration options for the Rehydra OpenCode plugin.
@@ -17,6 +21,9 @@ export interface RehydraPluginOptions {
 
   /** Minimum value length to consider as a secret (default: 4) */
   minValueLength?: number;
+
+  /** PII types to disable (e.g. ["URL", "IP_ADDRESS"]) */
+  disableTypes?: PIITypeName[];
 
   /** Locale hint for anonymization */
   locale?: string;

@@ -15,6 +15,8 @@ import { createAnonymizer } from "../core/anonymizer.js";
 import { AnonymizerSessionImpl } from "../storage/session-base.js";
 import { InMemoryPIIStorageProvider } from "../storage/in-memory.js";
 import { InMemoryKeyProvider } from "../crypto/index.js";
+import { PIIType, createDefaultPolicy } from "../types/index.js";
+import type { AnonymizationPolicy } from "../types/index.js";
 import type { RehydraPluginOptions } from "./types.js";
 
 const REHYDRA_INSTRUCTION = `<rehydra>
@@ -137,13 +139,35 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     });
     await anonymizer.initialize();
 
+    // Build policy with disabled types
+    let policy: Partial<AnonymizationPolicy> | undefined = options?.policy;
+    if (options?.disableTypes !== undefined && options.disableTypes.length > 0) {
+      const base = createDefaultPolicy();
+      const disableSet = new Set<string>(options.disableTypes);
+      const enabledTypes = new Set(base.enabledTypes);
+      const regexEnabledTypes = new Set(base.regexEnabledTypes);
+      const nerEnabledTypes = new Set(base.nerEnabledTypes);
+      for (const t of disableSet) {
+        const piiType = t as PIIType;
+        enabledTypes.delete(piiType);
+        regexEnabledTypes.delete(piiType);
+        nerEnabledTypes.delete(piiType);
+      }
+      policy = {
+        ...policy,
+        enabledTypes,
+        regexEnabledTypes,
+        nerEnabledTypes,
+      };
+    }
+
     log("info", "plugin initialized", {
       envFiles: options?.envFiles,
       redactValueCount: options?.redactValues?.length ?? 0,
+      disableTypes: options?.disableTypes,
     });
 
     const locale = options?.locale;
-    const policy = options?.policy;
 
     // One session per OpenCode session, keyed by sessionID
     const sessions = new Map<string, AnonymizerSessionImpl>();
