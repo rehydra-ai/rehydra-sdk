@@ -342,7 +342,10 @@ export class Anonymizer {
       };
 
       // Register secret recognizers
-      for (const recognizer of createSecretRecognizers()) {
+      for (const recognizer of createSecretRecognizers({
+        secretKeyPatterns: this.secretsConfig.secretKeyPatterns,
+        minValueLength: this.secretsConfig.minValueLength,
+      })) {
         this.registry.register(recognizer);
       }
     }

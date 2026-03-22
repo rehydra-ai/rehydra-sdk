@@ -9,8 +9,8 @@ import { privateKeyRecognizer } from "./private-key.js";
 import { jwtRecognizer } from "./jwt.js";
 import { connectionStringRecognizer } from "./connection-string.js";
 import { awsCredentialsRecognizer } from "./aws-credentials.js";
-import { envVarSecretRecognizer } from "./env-var.js";
-import { configSecretRecognizer } from "./config-secret.js";
+import { envVarSecretRecognizer, createEnvVarSecretRecognizer } from "./env-var.js";
+import { configSecretRecognizer, createConfigSecretRecognizer } from "./config-secret.js";
 
 export { apiKeyRecognizer } from "./api-key.js";
 export { privateKeyRecognizer } from "./private-key.js";
@@ -25,14 +25,25 @@ export { isSecretKeyName } from "./key-patterns.js";
 /**
  * Creates all secret recognizers
  */
-export function createSecretRecognizers(): Recognizer[] {
+export function createSecretRecognizers(options?: {
+  secretKeyPatterns?: RegExp[];
+  minValueLength?: number;
+}): Recognizer[] {
+  const hasCustomOptions =
+    (options?.secretKeyPatterns !== undefined && options.secretKeyPatterns.length > 0) ||
+    options?.minValueLength !== undefined;
+
   return [
     apiKeyRecognizer,
     privateKeyRecognizer,
     jwtRecognizer,
     connectionStringRecognizer,
     awsCredentialsRecognizer,
-    envVarSecretRecognizer,
-    configSecretRecognizer,
+    hasCustomOptions
+      ? createEnvVarSecretRecognizer(options?.minValueLength, options?.secretKeyPatterns)
+      : envVarSecretRecognizer,
+    hasCustomOptions
+      ? createConfigSecretRecognizer(options?.minValueLength, options?.secretKeyPatterns)
+      : configSecretRecognizer,
   ];
 }
