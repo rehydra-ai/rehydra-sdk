@@ -346,4 +346,4 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
   };
 }
 
-export default createRehydraPlugin;
+export default createRehydraPlugin();
