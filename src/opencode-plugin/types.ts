@@ -22,7 +22,7 @@ export interface RehydraPluginOptions {
   /** Minimum value length to consider as a secret (default: 4) */
   minValueLength?: number;
 
-  /** PII types to disable (e.g. ["URL", "IP_ADDRESS"]) */
+  /** PII types to disable (default: ["URL", "IP_ADDRESS"]). Pass [] to enable all types. */
   disableTypes?: PIITypeName[];
 
   /** Locale hint for anonymization */

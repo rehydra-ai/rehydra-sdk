@@ -15,9 +15,9 @@ import { createAnonymizer } from "../core/anonymizer.js";
 import { AnonymizerSessionImpl } from "../storage/session-base.js";
 import { InMemoryPIIStorageProvider } from "../storage/in-memory.js";
 import { InMemoryKeyProvider } from "../crypto/index.js";
-import { PIIType, createDefaultPolicy } from "../types/index.js";
+import { PIIType, createDefaultPolicy, SECRET_PII_TYPES } from "../types/index.js";
 import type { AnonymizationPolicy } from "../types/index.js";
-import type { RehydraPluginOptions } from "./types.js";
+import type { PIITypeName, RehydraPluginOptions } from "./types.js";
 
 const REHYDRA_INSTRUCTION = `<rehydra>
 Some values in this conversation have been replaced with PII placeholders like <PII type="..." id="..."/>. These are real values that have been masked for privacy during transit. They will be automatically rehydrated (replaced with the original values) before any command is executed locally.
@@ -139,23 +139,29 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     });
     await anonymizer.initialize();
 
-    // Build policy with disabled types
+    // Build policy with disabled types (URL and IP_ADDRESS disabled by default)
+    const disableTypes: PIITypeName[] =
+      options?.disableTypes ?? ["URL", "IP_ADDRESS"];
     let policy: Partial<AnonymizationPolicy> | undefined = options?.policy;
-    if (options?.disableTypes !== undefined && options.disableTypes.length > 0) {
+    if (disableTypes.length > 0) {
       const base = createDefaultPolicy();
-      const disableSet = new Set<string>(options.disableTypes);
-      const enabledTypes = new Set(base.enabledTypes);
+      const disableSet = new Set<string>(disableTypes);
       const regexEnabledTypes = new Set(base.regexEnabledTypes);
       const nerEnabledTypes = new Set(base.nerEnabledTypes);
+      // createDefaultPolicy() excludes secret types (they're opt-in via
+      // AnonymizerConfig.secrets).  Add them back so that passing this
+      // partial policy to mergePolicyWithBase doesn't accidentally drop
+      // the secret types the anonymizer added to its internal default.
+      for (const secretType of SECRET_PII_TYPES) {
+        regexEnabledTypes.add(secretType);
+      }
       for (const t of disableSet) {
         const piiType = t as PIIType;
-        enabledTypes.delete(piiType);
         regexEnabledTypes.delete(piiType);
         nerEnabledTypes.delete(piiType);
       }
       policy = {
         ...policy,
-        enabledTypes,
         regexEnabledTypes,
         nerEnabledTypes,
       };
@@ -164,7 +170,7 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     log("info", "plugin initialized", {
       envFiles: options?.envFiles,
       redactValueCount: options?.redactValues?.length ?? 0,
-      disableTypes: options?.disableTypes,
+      disableTypes,
     });
 
     const locale = options?.locale;
@@ -340,4 +346,4 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
   };
 }
 
-export default createRehydraPlugin;
+export default createRehydraPlugin();
