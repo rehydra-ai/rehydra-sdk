@@ -1,6 +1,6 @@
 {
   "name": "@rehydra/opencode",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Rehydra plugin for OpenCode — anonymizes secrets in LLM context using native plugin hooks",
   "type": "module",
   "main": "index.js",
