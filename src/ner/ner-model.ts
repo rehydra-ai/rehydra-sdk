@@ -415,11 +415,157 @@ export class NERModel {
 }
 
 /**
+ * Common function words / stopwords that should stay lowercase during case
+ * fallback so the NER model can still use contrastive casing as a signal.
+ * Only lowercase words NOT in this set get capitalized.
+ */
+const CASE_FALLBACK_STOPWORDS = new Set([
+  // articles
+  "a", "an", "the",
+  // pronouns
+  "i", "me", "my", "mine", "myself",
+  "you", "your", "yours", "yourself",
+  "he", "him", "his", "himself",
+  "she", "her", "hers", "herself",
+  "it", "its", "itself",
+  "we", "us", "our", "ours", "ourselves",
+  "they", "them", "their", "theirs", "themselves",
+  "this", "that", "these", "those",
+  "who", "whom", "whose", "which", "what",
+  // prepositions
+  "in", "on", "at", "to", "for", "of", "with", "by", "from",
+  "up", "about", "into", "through", "during", "before", "after",
+  "above", "below", "between", "under", "over", "out", "off",
+  "against", "along", "around", "among", "without", "within",
+  // conjunctions
+  "and", "but", "or", "nor", "so", "yet", "both", "either",
+  "neither", "not", "than", "when", "while", "if", "then",
+  "because", "since", "although", "though", "unless", "until",
+  // common verbs / auxiliaries
+  "is", "am", "are", "was", "were", "be", "been", "being",
+  "have", "has", "had", "having",
+  "do", "does", "did", "doing",
+  "will", "would", "shall", "should",
+  "can", "could", "may", "might", "must",
+  "need", "dare", "ought",
+  "get", "got", "gets", "getting",
+  "let", "say", "said", "says",
+  "go", "goes", "went", "going", "gone",
+  "come", "comes", "came", "coming",
+  "make", "makes", "made", "making",
+  "take", "takes", "took", "taken", "taking",
+  "give", "gives", "gave", "given", "giving",
+  "tell", "tells", "told", "telling",
+  "know", "knows", "knew", "known", "knowing",
+  "think", "thinks", "thought", "thinking",
+  "see", "sees", "saw", "seen", "seeing",
+  "want", "wants", "wanted", "wanting",
+  "look", "looks", "looked", "looking",
+  "use", "uses", "used", "using",
+  "find", "finds", "found", "finding",
+  "put", "puts", "putting",
+  "try", "tries", "tried", "trying",
+  "ask", "asks", "asked", "asking",
+  "work", "works", "worked", "working",
+  "seem", "seems", "seemed", "seeming",
+  "feel", "feels", "felt", "feeling",
+  "leave", "leaves", "left", "leaving",
+  "call", "calls", "called", "calling",
+  "keep", "keeps", "kept", "keeping",
+  "set", "sets", "setting",
+  "show", "shows", "showed", "shown", "showing",
+  "turn", "turns", "turned", "turning",
+  "move", "moves", "moved", "moving",
+  "play", "plays", "played", "playing",
+  "run", "runs", "ran", "running",
+  "hold", "holds", "held", "holding",
+  "bring", "brings", "brought", "bringing",
+  "happen", "happens", "happened", "happening",
+  "write", "writes", "wrote", "written", "writing",
+  "sit", "sits", "sat", "sitting",
+  "stand", "stands", "stood", "standing",
+  "lose", "loses", "lost", "losing",
+  "pay", "pays", "paid", "paying",
+  "meet", "meets", "met", "meeting",
+  "send", "sends", "sent", "sending",
+  "read", "reads", "reading",
+  "spend", "spends", "spent", "spending",
+  "grow", "grows", "grew", "grown", "growing",
+  "open", "opens", "opened", "opening",
+  "walk", "walks", "walked", "walking",
+  "win", "wins", "won", "winning",
+  "teach", "teaches", "taught", "teaching",
+  "buy", "buys", "bought", "buying",
+  "speak", "speaks", "spoke", "spoken", "speaking",
+  // adverbs / misc
+  "now", "just", "also", "very", "often", "still", "already",
+  "how", "all", "each", "every", "any", "few", "more", "most",
+  "some", "such", "no", "only", "same", "other", "new", "old",
+  "right", "well", "back", "even", "too", "here", "there",
+  "where", "why", "again", "once", "never", "always",
+  "much", "many", "own", "quite", "really",
+  "way", "thing", "things", "part", "place", "case", "point",
+  "time", "times", "day", "days", "year", "years",
+  "man", "men", "woman", "women", "child", "children",
+  "world", "life", "hand", "long", "little", "big",
+  "good", "bad", "great", "small", "large", "high", "low",
+  "first", "last", "next", "bit", "lot", "kind", "sort",
+  "enough", "able", "away", "sure", "else",
+  // contractions / fragments
+  "don", "doesn", "didn", "won", "wouldn", "shouldn",
+  "couldn", "isn", "aren", "wasn", "weren", "hasn", "haven",
+  "hadn", "ll", "ve", "re", "nt",
+  // German stopwords (common in multilingual contexts)
+  "der", "die", "das", "ein", "eine", "einer",
+  "und", "oder", "aber", "denn", "weil",
+  "ist", "sind", "war", "waren", "bin", "bist",
+  "hat", "haben", "hatte", "hatten",
+  "wird", "werden", "wurde", "wurden",
+  "kann", "konnte", "soll", "sollte", "muss", "musste",
+  "nicht", "kein", "keine", "keiner",
+  "ich", "du", "er", "sie", "es", "wir", "ihr",
+  "mein", "dein", "sein", "unser", "euer",
+  "mir", "dir", "ihm", "uns", "euch", "ihnen",
+  "auf", "aus", "bei", "mit", "nach", "von", "zu", "vor",
+  "den", "dem", "des",
+  "als", "wie", "wenn", "dann", "doch", "noch", "schon",
+  "auch", "nur", "sehr", "mehr", "jetzt", "hier", "da",
+  "mal", "bitte", "etwas", "was", "wer", "wo",
+  "ja", "nein", "okay",
+  // French stopwords
+  "le", "la", "les", "un", "une", "des",
+  "et", "ou", "mais", "donc", "car",
+  "je", "tu", "il", "elle", "nous", "vous", "ils", "elles",
+  "mon", "ton", "son", "notre", "votre", "leur",
+  "ce", "cette", "ces",
+  "est", "sont", "suis", "es", "sommes",
+  "pas", "ne", "plus", "que", "qui",
+  "dans", "sur", "sous", "avec", "pour", "par", "entre",
+  "au", "aux", "du",
+  "tout", "tous", "bien", "peu", "trop",
+  // Spanish stopwords
+  "el", "los", "las", "uno", "una", "unos", "unas",
+  "yo", "nos", "su", "sus", "mi", "mis", "tu", "tus",
+  "es", "son", "fue", "era", "hay",
+  "en", "con", "sin", "sobre", "entre", "hacia",
+  "del", "al",
+  "no", "si", "muy", "mas", "menos",
+  "que", "como", "donde", "cuando", "porque",
+]);
+
+/**
  * Capitalizes the first letter of each word for case-insensitive NER fallback.
+ * Only capitalizes words NOT in the stopword list, so the NER model retains
+ * contrastive casing signal (lowercase function words vs. capitalized candidates).
  * Preserves string length so character offsets remain valid.
  */
 function titleCaseWords(text: string): string {
-  return text.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+  return text.replace(/\b([a-z][a-z]*)/g, (word) => {
+    if (CASE_FALLBACK_STOPWORDS.has(word)) {
+      return word;
+    }
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  });
 }
 
 /**
