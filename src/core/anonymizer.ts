@@ -252,6 +252,14 @@ export interface AnonymizerConfig {
 
   /** Policy version string */
   policyVersion?: string;
+
+  /**
+   * Optional callback for validation warnings emitted during anonymization.
+   * When not provided, warnings are silently ignored.
+   * Previously these were logged via console.warn, which pollutes stdout
+   * in TUI-based editors (e.g. OpenCode).
+   */
+  onValidationWarning?: (warnings: Array<{ code: string; message: string }>) => void;
 }
 
 /**
@@ -283,6 +291,7 @@ export class Anonymizer {
   private initialized = false;
   private semanticDataReady = false;
   private sessionFactory: SessionFactory | null;
+  private onValidationWarning: ((warnings: Array<{ code: string; message: string }>) => void) | null;
 
   constructor(config: AnonymizerConfig = {}, sessionFactory?: SessionFactory) {
     this.registry = config.registry ?? createDefaultRegistry();
@@ -292,6 +301,7 @@ export class Anonymizer {
     this.defaultPolicy = config.defaultPolicy ?? createDefaultPolicy();
     this.policyVersion = config.policyVersion ?? "1.0.0";
     this.sessionFactory = sessionFactory ?? null;
+    this.onValidationWarning = config.onValidationWarning ?? null;
 
     // Handle NER configuration
     this.nerConfig = config.ner ?? { mode: "disabled" };
@@ -595,14 +605,12 @@ export class Anonymizer {
       effectivePolicy
     );
 
-    if (!validation.valid) {
-      // Log validation errors (but don't expose raw PII)
+    if (!validation.valid && this.onValidationWarning) {
       const safeErrors = validation.errors.map((e) => ({
         code: e.code,
         message: e.message,
       }));
-      // eslint-disable-next-line no-console
-      console.warn("Validation warnings:", safeErrors);
+      this.onValidationWarning(safeErrors);
     }
 
     // Step 7: Build stats
