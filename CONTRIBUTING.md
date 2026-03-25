@@ -69,36 +69,12 @@ Run the full suite with coverage:
 npm run test:coverage
 ```
 
-## Releases
+## Issues
 
-Releases are fully automated via [release-please](https://github.com/googleapis/release-please):
-
-1. Merge a PR with a `fix:` or `feat:` prefix
-2. release-please creates a Release PR with version bumps, changelog updates, and dependency syncs
-3. A maintainer merges the Release PR to publish all three packages to npm
-
-All three packages (`rehydra`, `@rehydra/cli`, `@rehydra/opencode`) are versioned in lockstep. No manual version bumps are needed.
-
-## Project Structure
-
-```
-rehydra-sdk/
-├── src/                    # Source code (all packages built from here)
-│   ├── core/               # AnonymizerCore orchestration
-│   ├── types/              # PIIType, AnonymizationPolicy, result types
-│   ├── recognizers/        # Regex-based PII detection
-│   ├── ner/                # ONNX-based Named Entity Recognition
-│   ├── pipeline/           # Sequential processing stages
-│   ├── storage/            # Encrypted PII persistence providers
-│   ├── crypto/             # AES-256-GCM encryption (Web Crypto API)
-│   ├── cli/                # CLI commands (@rehydra/cli)
-│   ├── opencode-plugin/    # OpenCode plugin (@rehydra/opencode)
-│   └── utils/              # Cross-platform abstractions
-├── packages/
-│   ├── cli/                # @rehydra/cli package.json + entry point
-│   └── opencode-plugin/    # @rehydra/opencode package.json + entry point
-└── test/                   # Tests (mirrors src/ structure)
-```
+- Check [existing issues](https://github.com/rehydra-ai/rehydra-sdk/issues) before opening a new one
+- Bug reports should include: steps to reproduce, expected vs actual behavior, and the Rehydra version
+- Feature requests are welcome — describe the use case, not just the solution
+- If you'd like to work on an issue, leave a comment so we can coordinate
 
 ## License
 
