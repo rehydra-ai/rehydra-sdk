@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "plugins": [
+    {
+      "type": "node-workspace",
+      "updateAllPackages": true
+    },
+    {
+      "type": "linked-versions",
+      "groupName": "rehydra",
+      "components": ["rehydra", "@rehydra/cli", "@rehydra/opencode"]
+    }
+  ],
+  "packages": {
+    ".": {
+      "component": "rehydra",
+      "include-component-in-tag": false
+    },
+    "packages/cli": {
+      "component": "@rehydra/cli",
+      "skip-github-release": true
+    },
+    "packages/opencode-plugin": {
+      "component": "@rehydra/opencode",
+      "skip-github-release": true
+    }
+  }
+}
