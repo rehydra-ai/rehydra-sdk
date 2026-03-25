@@ -3,7 +3,12 @@
  * Handles OpenAI Chat Completions API format.
  */
 
-import type { LLMContentProvider, ToolCallDelta } from "./types.js";
+import type {
+  LLMContentProvider,
+  ToolCallDelta,
+  ToolCallInfo,
+  ToolResultMessage,
+} from "./types.js";
 
 interface OpenAIMessage {
   role: string;
@@ -224,5 +229,63 @@ export class OpenAIProvider implements LLMContentProvider {
       }
     }
     return chunk;
+  }
+
+  // ── Tool execution loop methods ──────────────────────────────────
+
+  hasResponseToolCalls(body: unknown): boolean {
+    const res = body as OpenAIChatResponse;
+    if (!Array.isArray(res.choices)) return false;
+    return res.choices.some(
+      (c) =>
+        Array.isArray(c.message?.tool_calls) &&
+        c.message.tool_calls.length > 0,
+    );
+  }
+
+  extractResponseToolCallInfo(body: unknown): ToolCallInfo[] {
+    const res = body as OpenAIChatResponse;
+    const infos: ToolCallInfo[] = [];
+    for (const choice of res.choices ?? []) {
+      for (const tc of choice.message?.tool_calls ?? []) {
+        infos.push({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        });
+      }
+    }
+    return infos;
+  }
+
+  extractMessages(body: unknown): unknown[] {
+    const req = body as OpenAIChatRequest;
+    return req.messages ?? [];
+  }
+
+  buildToolLoopBody(
+    originalBody: unknown,
+    currentMessages: unknown[],
+    assistantResponse: unknown,
+    toolResults: ToolResultMessage[],
+  ): unknown {
+    const res = assistantResponse as OpenAIChatResponse;
+    const assistantMsg = res.choices[0]!.message;
+
+    const newMessages = [
+      ...currentMessages,
+      assistantMsg,
+      ...toolResults.map((tr) => ({
+        role: "tool" as const,
+        tool_call_id: tr.toolCallId,
+        content: tr.content,
+      })),
+    ];
+
+    return {
+      ...(originalBody as Record<string, unknown>),
+      messages: newMessages,
+      stream: false,
+    };
   }
 }

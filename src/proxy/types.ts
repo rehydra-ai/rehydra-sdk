@@ -8,6 +8,22 @@ import type { KeyProvider } from "../crypto/index.js";
 import type { PIIStorageProvider } from "../storage/types.js";
 
 /**
+ * Callback invoked when the LLM requests a tool call during an agentic loop.
+ * Receives rehydrated (real PII) arguments. The return value will be
+ * automatically anonymized before being sent back to the LLM.
+ *
+ * @param name - The function/tool name
+ * @param args - Parsed tool arguments with real PII values restored
+ * @param toolCallId - The unique tool call ID from the LLM
+ * @returns The tool execution result (will be JSON-stringified and anonymized)
+ */
+export type OnToolCallFn = (
+  name: string,
+  args: Record<string, unknown>,
+  toolCallId: string,
+) => unknown;
+
+/**
  * Configuration for the Rehydra fetch wrapper
  */
 export interface RehydraFetchConfig {
@@ -40,6 +56,27 @@ export interface RehydraFetchConfig {
 
   /** Locale hint for anonymization */
   locale?: string;
+
+  /**
+   * Callback for executing tool calls in an agentic loop.
+   * When provided and the LLM returns tool calls (non-streaming), the proxy will:
+   * 1. Rehydrate tool call arguments (restore real PII)
+   * 2. Call this callback for each tool call
+   * 3. Anonymize the return value
+   * 4. Send the result back to the LLM in the next round
+   * 5. Repeat until the LLM returns a final response (no tool calls)
+   *
+   * The callback receives real PII values — it runs on your server, not the LLM.
+   * Non-streaming only (streaming tool loops are not yet supported).
+   */
+  onToolCall?: OnToolCallFn;
+
+  /**
+   * Maximum number of tool execution rounds before returning.
+   * Prevents infinite loops. Only used when onToolCall is set.
+   * @default 10
+   */
+  maxToolRounds?: number;
 }
 
 /**

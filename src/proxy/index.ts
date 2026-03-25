@@ -18,4 +18,4 @@ export {
   AnthropicProvider,
   type LLMContentProvider,
 } from "./providers/index.js";
-export type { RehydraFetchConfig, RehydraProxyConfig } from "./types.js";
+export type { RehydraFetchConfig, RehydraProxyConfig, OnToolCallFn } from "./types.js";

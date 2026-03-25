@@ -182,6 +182,49 @@ export interface AnonymizerSession {
   exists(): Promise<boolean>;
 
   /**
+   * Recursively anonymize all string values in a JSON-serializable structure.
+   * Returns a deep copy with every string leaf anonymized via session.anonymize().
+   *
+   * Useful for anonymizing tool call results or arbitrary JSON payloads
+   * in multi-round LLM tool execution loops.
+   *
+   * @param value - Any JSON-serializable value (object, array, string, number, boolean, null)
+   * @param locale - Optional locale hint (e.g., 'de-DE', 'en-US')
+   * @param policy - Optional policy override
+   * @returns Deep copy with all strings anonymized
+   *
+   * @example
+   * ```typescript
+   * const result = await session.anonymizeJson({
+   *   name: "John Smith",
+   *   email: "john@example.com",
+   *   age: 30,
+   * });
+   * // { name: '<PII type="PERSON" id="1"/>', email: '<PII type="EMAIL" id="2"/>', age: 30 }
+   * ```
+   */
+  anonymizeJson<T>(
+    value: T,
+    locale?: string,
+    policy?: Partial<AnonymizationPolicy>,
+  ): Promise<T>;
+
+  /**
+   * Recursively rehydrate all string values in a JSON-serializable structure.
+   * Returns a deep copy with every string leaf rehydrated via session.rehydrate().
+   *
+   * @param value - Any JSON-serializable value
+   * @returns Deep copy with all strings rehydrated (PII tags replaced with original values)
+   *
+   * @example
+   * ```typescript
+   * const original = await session.rehydrateJson(anonymizedResult);
+   * // { name: "John Smith", email: "john@example.com", age: 30 }
+   * ```
+   */
+  rehydrateJson<T>(value: T): Promise<T>;
+
+  /**
    * Create a streaming anonymizer bound to this session.
    * The stream automatically uses this session's ID, storage, and key provider.
    * Node.js/Bun only — not available in browser builds.
