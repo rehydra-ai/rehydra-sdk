@@ -703,3 +703,259 @@ describe("Tool execution loop (onToolCall)", () => {
     expect(receivedBodies[1]!.stream).toBe(false);
   });
 });
+
+// ── Anthropic format tests ───────────────────────────────────────
+
+/** Anthropic tool_use response shape */
+function anthropicToolUseResponse(
+  toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>,
+) {
+  return {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    content: toolCalls.map((tc) => ({
+      type: "tool_use",
+      id: tc.id,
+      name: tc.name,
+      input: tc.input,
+    })),
+    stop_reason: "tool_use",
+  };
+}
+
+/** Anthropic final text response shape */
+function anthropicTextResponse(text: string) {
+  return {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text }],
+    stop_reason: "end_turn",
+  };
+}
+
+describe("Tool execution loop — Anthropic format", () => {
+  let mockServer: {
+    server: Server;
+    port: number;
+    receivedBodies: ReceivedBody[];
+  } | null = null;
+
+  afterEach(async () => {
+    if (mockServer !== null) {
+      await new Promise<void>((resolve) => {
+        mockServer!.server.close(() => resolve());
+      });
+      mockServer = null;
+    }
+  });
+
+  it("should execute a single tool call round with Anthropic format", async () => {
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        // Extract the PII tag from the anonymized user message
+        const msgs = body.messages as Array<{ role: string; content: string }>;
+        const userContent = msgs.find((m) => m.role === "user")?.content ?? "";
+        const emailTag =
+          userContent.match(/<PII[^/]*\/>/)?.[0] ?? "unknown@email.com";
+
+        return anthropicToolUseResponse([
+          {
+            id: "toolu_01ABC",
+            name: "lookup_user",
+            input: { email: emailTag },
+          },
+        ]);
+      }
+      return anthropicTextResponse("Found the user!");
+    });
+
+    const { port, receivedBodies } = mockServer;
+    const toolCallLog: Array<{
+      name: string;
+      args: Record<string, unknown>;
+      id: string;
+    }> = [];
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "anthropic",
+      getSessionId: async () => "anthropic-test-1",
+      onToolCall: async (name, args, toolCallId) => {
+        toolCallLog.push({ name, args, id: toolCallId });
+        return { id: "user-42", name: "John Smith" };
+      },
+      maxToolRounds: 5,
+    });
+
+    const response = await rehydraFetch(
+      `http://127.0.0.1:${port}/v1/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": "sk-ant-test",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          messages: [
+            {
+              role: "user",
+              content: "Look up the user john@example.com",
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    const result = (await response.json()) as {
+      content: Array<{ type: string; text?: string }>;
+    };
+
+    // Final response text should be rehydrated
+    expect(result.content[0].text).toBe("Found the user!");
+
+    // onToolCall should have been called with rehydrated args
+    expect(toolCallLog).toHaveLength(1);
+    expect(toolCallLog[0].name).toBe("lookup_user");
+    expect(toolCallLog[0].args.email).toBe("john@example.com");
+    expect(toolCallLog[0].id).toBe("toolu_01ABC");
+
+    // Server should have received 2 requests
+    expect(receivedBodies).toHaveLength(2);
+
+    // Second request should have Anthropic message format:
+    // user message + assistant (with tool_use content) + user (with tool_result content)
+    const secondBody = receivedBodies[1]! as Record<string, unknown>;
+    const msgs = secondBody.messages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    expect(msgs).toHaveLength(3);
+
+    // First: original user message (already anonymized)
+    expect(msgs[0].role).toBe("user");
+
+    // Second: assistant with tool_use block
+    expect(msgs[1].role).toBe("assistant");
+    const assistantContent = msgs[1].content as Array<{
+      type: string;
+      id?: string;
+    }>;
+    expect(assistantContent[0].type).toBe("tool_use");
+    expect(assistantContent[0].id).toBe("toolu_01ABC");
+
+    // Third: user with tool_result block
+    expect(msgs[2].role).toBe("user");
+    const toolResultContent = msgs[2].content as Array<{
+      type: string;
+      tool_use_id?: string;
+      content?: string;
+    }>;
+    expect(toolResultContent[0].type).toBe("tool_result");
+    expect(toolResultContent[0].tool_use_id).toBe("toolu_01ABC");
+  });
+
+  it("should anonymize PII in tool results with Anthropic format", async () => {
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        return anthropicToolUseResponse([
+          { id: "toolu_01X", name: "get_contact", input: {} },
+        ]);
+      }
+      return anthropicTextResponse("Done");
+    });
+
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "anthropic",
+      getSessionId: async () => "anthropic-anon-result",
+      onToolCall: async () => ({
+        name: "Jane Doe",
+        email: "jane@secret.com",
+      }),
+    });
+
+    await rehydraFetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": "sk-ant-test",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        messages: [{ role: "user", content: "Get the contact info" }],
+      }),
+    });
+
+    // The tool result sent to the LLM should have anonymized PII
+    const secondBody = receivedBodies[1]! as Record<string, unknown>;
+    const msgs = secondBody.messages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const toolResultMsg = msgs[2]; // user message with tool_result
+    const toolResultBlocks = toolResultMsg.content as Array<{
+      content?: string;
+    }>;
+    const resultContent = toolResultBlocks[0].content!;
+    expect(resultContent).not.toContain("jane@secret.com");
+    expect(resultContent).toContain("PII");
+  });
+
+  it("should not re-anonymize messages across rounds with Anthropic format", async () => {
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        return anthropicToolUseResponse([
+          { id: "toolu_01Y", name: "check", input: {} },
+        ]);
+      }
+      return anthropicTextResponse("OK");
+    });
+
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "anthropic",
+      getSessionId: async () => "anthropic-no-re-anon",
+      onToolCall: async () => ({ status: "done" }),
+    });
+
+    await rehydraFetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": "sk-ant-test",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        messages: [
+          { role: "user", content: "Contact john@example.com please" },
+        ],
+      }),
+    });
+
+    // First request: email should be anonymized
+    const firstMsgs = receivedBodies[0]!.messages;
+    const firstUserContent = firstMsgs[0]!.content as string;
+    expect(firstUserContent).toContain("<PII");
+    expect(firstUserContent).not.toContain("john@example.com");
+
+    // Second request: same user message should have identical PII tag
+    const secondMsgs = (receivedBodies[1]! as Record<string, unknown>)
+      .messages as Array<{ content: unknown }>;
+    const secondUserContent = secondMsgs[0]!.content as string;
+    expect(secondUserContent).toBe(firstUserContent);
+  });
+});
