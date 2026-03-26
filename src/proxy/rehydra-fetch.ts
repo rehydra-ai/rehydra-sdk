@@ -13,19 +13,7 @@ import { SSEParser, isSSEDone, serializeSSEEvent } from "./sse-parser.js";
 import { detectProvider } from "./providers/index.js";
 import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js";
 import type { RehydraFetchConfig } from "./types.js";
-
-/**
- * System instruction injected when onToolCall is configured.
- * Tells the model to pass PII placeholders through as-is in tool call arguments.
- */
-const PII_SYSTEM_INSTRUCTION = [
-  "Some values in this conversation have been replaced with PII placeholders like <PII type=\"...\" id=\"...\"/>.",
-  "These are real values that have been masked for privacy during transit.",
-  "IMPORTANT: Treat these placeholders exactly like real values.",
-  "Do NOT try to resolve, decode, remove, or work around them.",
-  "Use them as-is in commands, code, and tool calls.",
-  "For example, if a user message contains <PII type=\"EMAIL\" id=\"1\"/>, pass that exact placeholder as the email argument in any tool call.",
-].join(" ");
+import { DEFAULT_PII_SYSTEM_INSTRUCTION } from "./system-instruction.js";
 
 let sessionCounter = 0;
 
@@ -147,27 +135,37 @@ export function createRehydraFetch(
       // Extract and anonymize text from the request
       const texts = provider.extractRequestText(body);
       const anonymizedTexts: string[] = [];
+      let piiDetected = false;
 
-      for (const text of texts) {
+      for (let i = 0; i < texts.length; i++) {
         const result = await session.anonymize(
-          text,
+          texts[i]!,
           config.locale,
           config.policy,
         );
         anonymizedTexts.push(result.anonymizedText);
+        if (result.anonymizedText !== texts[i]) {
+          piiDetected = true;
+        }
       }
 
       // Rebuild the request body with anonymized text
       let anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
 
-      // Inject PII handling instruction when tool loop is active
+      // Inject PII handling instruction when anonymization replaced something.
+      // Can be disabled with systemInstruction: false, or overridden with a custom string.
       if (
-        config.onToolCall !== undefined &&
+        piiDetected &&
+        config.systemInstruction !== false &&
         provider.injectSystemInstruction !== undefined
       ) {
+        const instruction =
+          typeof config.systemInstruction === "string"
+            ? config.systemInstruction
+            : DEFAULT_PII_SYSTEM_INSTRUCTION;
         anonymizedBody = provider.injectSystemInstruction(
           anonymizedBody,
-          PII_SYSTEM_INSTRUCTION,
+          instruction,
         );
       }
 

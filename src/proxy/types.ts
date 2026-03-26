@@ -58,6 +58,16 @@ export interface RehydraFetchConfig {
   locale?: string;
 
   /**
+   * System instruction injected when PII is detected, telling the model
+   * to treat PII placeholders as opaque pass-through values.
+   *
+   * - `undefined` (default): uses the built-in instruction
+   * - `string`: uses your custom instruction text
+   * - `false`: disables injection entirely
+   */
+  systemInstruction?: string | false;
+
+  /**
    * Callback for executing tool calls in an agentic loop.
    * When provided and the LLM returns tool calls (non-streaming), the proxy will:
    * 1. Rehydrate tool call arguments (restore real PII)

@@ -31,7 +31,9 @@ function createMockLLMServer(): Promise<{ server: Server; port: number; received
       receivedBodies.push(body);
 
       const isStreaming = body.stream === true;
-      const prompt = (body.messages as any)?.[0]?.content ?? "no content";
+      const msgs = (body.messages as any[]) ?? [];
+      const userMsg = msgs.find((m: any) => m.role === "user");
+      const prompt = userMsg?.content ?? "no content";
 
       if (isStreaming) {
         res.writeHead(200, {
@@ -110,8 +112,9 @@ describe("createRehydraFetch", () => {
 
     // Verify the request sent to the mock server was anonymized
     const sentBody = receivedBodies[0] as any;
-    expect(sentBody.messages[0].content).toContain('<PII type="EMAIL"');
-    expect(sentBody.messages[0].content).not.toContain("john@example.com");
+    const sentUserMsg = (sentBody.messages as any[]).find((m: any) => m.role === "user");
+    expect(sentUserMsg.content).toContain('<PII type="EMAIL"');
+    expect(sentUserMsg.content).not.toContain("john@example.com");
 
     // Verify the response was rehydrated
     const data = await response.json() as any;
@@ -165,7 +168,8 @@ describe("createRehydraFetch", () => {
 
     // Verify request was anonymized
     const sentBody = receivedBodies[0] as any;
-    expect(sentBody.messages[0].content).toContain('<PII type="EMAIL"');
+    const sentUserMsg = (sentBody.messages as any[]).find((m: any) => m.role === "user");
+    expect(sentUserMsg.content).toContain('<PII type="EMAIL"');
 
     // Read the SSE stream
     const reader = response.body!.getReader();
@@ -353,7 +357,7 @@ describe("createRehydraFetch", () => {
 
     it("should rehydrate tool call arguments in non-streaming response", async () => {
       mockServer = await createCustomMockServer((body, res) => {
-        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const prompt = ((body.messages as any[]) ?? []).find((m: any) => m.role === "user")?.content ?? "";
         res.writeHead(200, { "Content-Type": "application/json" });
         // Echo the full prompt as tool call arguments so PII tags are included
         res.end(JSON.stringify({
@@ -395,8 +399,9 @@ describe("createRehydraFetch", () => {
 
       // Verify request was anonymized
       const sentBody = receivedBodies[0] as any;
-      expect(sentBody.messages[0].content).toContain('<PII type="EMAIL"');
-      expect(sentBody.messages[0].content).not.toContain("john@example.com");
+      const sentUserMsg = (sentBody.messages as any[]).find((m: any) => m.role === "user");
+    expect(sentUserMsg.content).toContain('<PII type="EMAIL"');
+      expect(sentUserMsg.content).not.toContain("john@example.com");
 
       // Verify tool call arguments were rehydrated
       const data = await response.json() as any;
@@ -406,7 +411,7 @@ describe("createRehydraFetch", () => {
 
     it("should rehydrate tool call arguments in streaming response", async () => {
       mockServer = await createCustomMockServer((body, res) => {
-        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const prompt = ((body.messages as any[]) ?? []).find((m: any) => m.role === "user")?.content ?? "";
         const argsJson = JSON.stringify({ to: prompt });
 
         res.writeHead(200, {
@@ -455,7 +460,8 @@ describe("createRehydraFetch", () => {
 
       // Verify request was anonymized
       const sentBody = receivedBodies[0] as any;
-      expect(sentBody.messages[0].content).not.toContain("john@example.com");
+      const sentUserMsg = (sentBody.messages as any[]).find((m: any) => m.role === "user");
+      expect(sentUserMsg.content).not.toContain("john@example.com");
 
       // Read the full stream and collect tool call argument fragments
       const reader = response.body!.getReader();
@@ -474,7 +480,7 @@ describe("createRehydraFetch", () => {
 
     it("should handle interleaved multi-tool-call streaming", async () => {
       mockServer = await createCustomMockServer((body, res) => {
-        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const prompt = ((body.messages as any[]) ?? []).find((m: any) => m.role === "user")?.content ?? "";
 
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -540,7 +546,7 @@ describe("createRehydraFetch", () => {
 
     it("should handle PII tags spanning tool call argument chunks", async () => {
       mockServer = await createCustomMockServer((body, res) => {
-        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const prompt = ((body.messages as any[]) ?? []).find((m: any) => m.role === "user")?.content ?? "";
         const argsJson = JSON.stringify({ to: prompt });
 
         res.writeHead(200, {
@@ -609,7 +615,7 @@ describe("createRehydraFetch", () => {
 
     it("should flush Anthropic tool call buffer before content_block_stop", async () => {
       mockServer = await createCustomMockServer((body, res) => {
-        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const prompt = ((body.messages as any[]) ?? []).find((m: any) => m.role === "user")?.content ?? "";
         // Build arguments with two PII refs: the first completes, the second is
         // intentionally split so the buffer holds an incomplete tag at stop time.
         const argsJson = `{"to":"${prompt}","cc":"${prompt}"}`;
@@ -708,7 +714,9 @@ describe("createRehydraFetch", () => {
 
     it("should flush tool call buffer at stream end for OpenAI", async () => {
       mockServer = await createCustomMockServer((body, res) => {
-        const prompt = (body.messages as any)?.[0]?.content ?? "";
+        const msgs = (body.messages as any[]) ?? [];
+        const userMsg = msgs.find((m: any) => m.role === "user");
+        const prompt = userMsg?.content ?? "";
         // Build arguments containing two PII refs; split after the second <PII
         // so the buffer is non-empty when [DONE] arrives.
         const argsJson = `{"to":"${prompt}","cc":"${prompt}"}`;
