@@ -702,6 +702,253 @@ describe("Tool execution loop (onToolCall)", () => {
     // Second request should have stream: false (tool loop needs full JSON response)
     expect(receivedBodies[1]!.stream).toBe(false);
   });
+
+  it("should handle invalid JSON in initial LLM response", async () => {
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("not valid json{{{");
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    mockServer = { server, port, receivedBodies: [] };
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "invalid-json-initial",
+      onToolCall: async () => ({}),
+    });
+
+    const response = await rehydraFetch(
+      `http://127.0.0.1:${port}/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer sk-test",
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+
+    // Should pass through the raw response
+    expect(response.ok).toBe(true);
+    const text = await response.text();
+    expect(text).toBe("not valid json{{{");
+  });
+
+  it("should handle invalid JSON in tool call arguments", async () => {
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        return toolCallResponse([
+          {
+            id: "call_1",
+            name: "my_tool",
+            arguments: "not a json string!!!",
+          },
+        ]);
+      }
+      return textResponse("Done");
+    });
+
+    const { port } = mockServer;
+    const receivedArgs: Record<string, unknown>[] = [];
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "invalid-tool-args",
+      onToolCall: async (name, args) => {
+        receivedArgs.push(args);
+        return { ok: true };
+      },
+    });
+
+    const response = await rehydraFetch(
+      `http://127.0.0.1:${port}/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer sk-test",
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    // Should fall back to { raw: ... }
+    expect(receivedArgs).toHaveLength(1);
+    expect(receivedArgs[0]).toHaveProperty("raw");
+  });
+
+  it("should handle onToolCall returning a string result", async () => {
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        return toolCallResponse([
+          { id: "call_1", name: "my_tool", arguments: "{}" },
+        ]);
+      }
+      return textResponse("Done");
+    });
+
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "string-result",
+      onToolCall: async () => "plain string result",
+    });
+
+    const response = await rehydraFetch(
+      `http://127.0.0.1:${port}/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer sk-test",
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    // The tool result content should be the string directly (not JSON.stringify'd)
+    const toolMsg = receivedBodies[1]!.messages.find(
+      (m) => m.role === "tool",
+    );
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.content).toBe("plain string result");
+  });
+
+  it("should handle upstream fetch failure during tool loop", async () => {
+    let callCount = 0;
+    mockServer = await createMockServer((body, callIndex) => {
+      callCount++;
+      // First call returns tool call
+      return toolCallResponse([
+        { id: "call_1", name: "my_tool", arguments: "{}" },
+      ]);
+    });
+
+    const { port } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "fetch-fail",
+      onToolCall: async () => {
+        // Shut down the server after the first tool call so the next fetch fails
+        await new Promise<void>((resolve) => {
+          mockServer!.server.close(() => resolve());
+        });
+        return { ok: true };
+      },
+    });
+
+    const response = await rehydraFetch(
+      `http://127.0.0.1:${port}/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer sk-test",
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+
+    // Should return a 502 error
+    expect(response.status).toBe(502);
+    const errorBody = (await response.json()) as {
+      error: { message: string };
+    };
+    expect(errorBody.error.message).toContain("Upstream LLM unreachable");
+    // Prevent afterEach from trying to close an already-closed server
+    mockServer = null;
+  });
+
+  it("should handle invalid JSON in subsequent LLM response", async () => {
+    let callCount = 0;
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      callCount++;
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      if (callCount === 1) {
+        // First response: valid tool call
+        res.end(
+          JSON.stringify(
+            toolCallResponse([
+              { id: "call_1", name: "my_tool", arguments: "{}" },
+            ]),
+          ),
+        );
+      } else {
+        // Second response: invalid JSON
+        res.end("broken json response!!!");
+      }
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    mockServer = { server, port, receivedBodies: [] };
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "invalid-json-subsequent",
+      onToolCall: async () => ({ ok: true }),
+    });
+
+    const response = await rehydraFetch(
+      `http://127.0.0.1:${port}/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer sk-test",
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+
+    // Should pass through the raw invalid response
+    expect(response.ok).toBe(true);
+    const text = await response.text();
+    expect(text).toBe("broken json response!!!");
+  });
 });
 
 // ── Anthropic format tests ───────────────────────────────────────
