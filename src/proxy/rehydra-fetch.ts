@@ -359,11 +359,43 @@ async function handleToolLoop(
       });
     }
 
+    // Anonymize the assistant's tool call arguments before appending.
+    // The LLM may have generated real-looking PII in tool_use inputs
+    // instead of echoing back the PII tags it received.
+    let sanitizedResponse = currentResponse;
+    if (
+      provider.extractResponseToolCalls !== undefined &&
+      provider.rebuildResponseToolCalls !== undefined
+    ) {
+      const rawArgs = provider.extractResponseToolCalls(currentResponse);
+      if (rawArgs.length > 0) {
+        const anonymizedArgs: string[] = [];
+        for (const arg of rawArgs) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(arg);
+          } catch {
+            parsed = arg;
+          }
+          const anonymized = await session.anonymizeJson(parsed);
+          anonymizedArgs.push(
+            typeof anonymized === "string"
+              ? anonymized
+              : JSON.stringify(anonymized),
+          );
+        }
+        sanitizedResponse = provider.rebuildResponseToolCalls(
+          currentResponse,
+          anonymizedArgs,
+        );
+      }
+    }
+
     // Build the next request body (no re-anonymization — messages are already anonymized)
     const nextBody = provider.buildToolLoopBody!(
       anonymizedBody,
       currentMessages,
-      currentResponse,
+      sanitizedResponse,
       toolResults,
     );
 

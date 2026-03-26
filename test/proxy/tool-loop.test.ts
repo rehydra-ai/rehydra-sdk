@@ -472,6 +472,60 @@ describe("Tool execution loop (onToolCall)", () => {
     expect(toolResultContent).toContain("<PII");
   });
 
+  it("should anonymize PII in assistant tool_call arguments", async () => {
+    // Simulate the LLM hallucinating real PII in tool call arguments
+    // instead of using PII tags (common model behavior)
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        return toolCallResponse([
+          {
+            id: "call_1",
+            name: "send_email",
+            // LLM generated a real-looking email instead of echoing the PII tag
+            arguments: JSON.stringify({
+              to: "alice@realcompany.com",
+              subject: "Meeting",
+            }),
+          },
+        ]);
+      }
+      return textResponse("Done");
+    });
+
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "anon-tool-args",
+      onToolCall: async () => ({ sent: true }),
+    });
+
+    await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer sk-test",
+      },
+      body: JSON.stringify({
+        model: "gpt-4",
+        messages: [
+          { role: "user", content: "Email alice@realcompany.com about the meeting" },
+        ],
+      }),
+    });
+
+    // The assistant message in the second request should have anonymized
+    // tool_call arguments — no raw PII
+    const secondBody = receivedBodies[1]!;
+    const assistantMsg = secondBody.messages[1]!;
+    expect(assistantMsg.role).toBe("assistant");
+    const toolCallArgs = assistantMsg.tool_calls![0].function.arguments;
+    expect(toolCallArgs).not.toContain("alice@realcompany.com");
+    expect(toolCallArgs).toContain("PII");
+  });
+
   it("should reuse PII IDs for the same value across tool results", async () => {
     mockServer = await createMockServer((body, callIndex) => {
       if (callIndex === 0) {
@@ -1204,5 +1258,68 @@ describe("Tool execution loop — Anthropic format", () => {
       .messages as Array<{ content: unknown }>;
     const secondUserContent = secondMsgs[0]!.content as string;
     expect(secondUserContent).toBe(firstUserContent);
+  });
+
+  it("should anonymize PII in assistant tool_use input with Anthropic format", async () => {
+    mockServer = await createMockServer((body, callIndex) => {
+      if (callIndex === 0) {
+        return anthropicToolUseResponse([
+          {
+            id: "toolu_01Z",
+            name: "send_email",
+            // LLM hallucinated real PII in tool_use input
+            input: { to: "alice@realcompany.com", subject: "Meeting" },
+          },
+        ]);
+      }
+      return anthropicTextResponse("Done");
+    });
+
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "anthropic",
+      getSessionId: async () => "anthropic-anon-tool-input",
+      onToolCall: async () => ({ sent: true }),
+    });
+
+    await rehydraFetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": "sk-ant-test",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        messages: [
+          {
+            role: "user",
+            content: "Email alice@realcompany.com about the meeting",
+          },
+        ],
+      }),
+    });
+
+    // The assistant message in the second request should have anonymized
+    // tool_use input — no raw PII
+    const secondBody = receivedBodies[1]! as Record<string, unknown>;
+    const msgs = secondBody.messages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const assistantMsg = msgs[1]; // assistant with tool_use content
+    expect(assistantMsg.role).toBe("assistant");
+    const toolUseBlock = (
+      assistantMsg.content as Array<{
+        type: string;
+        input?: Record<string, unknown>;
+      }>
+    ).find((b) => b.type === "tool_use")!;
+    const inputStr = JSON.stringify(toolUseBlock.input);
+    expect(inputStr).not.toContain("alice@realcompany.com");
+    expect(inputStr).toContain("PII");
   });
 });
