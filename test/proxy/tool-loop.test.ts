@@ -915,29 +915,41 @@ describe("Tool execution loop (onToolCall)", () => {
   });
 
   it("should handle upstream fetch failure during tool loop", async () => {
-    let callCount = 0;
-    mockServer = await createMockServer((body, callIndex) => {
-      callCount++;
-      // First call returns tool call
-      return toolCallResponse([
-        { id: "call_1", name: "my_tool", arguments: "{}" },
-      ]);
+    let requestCount = 0;
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      requestCount++;
+
+      if (requestCount === 1) {
+        // First request: return a tool call
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify(
+            toolCallResponse([
+              { id: "call_1", name: "my_tool", arguments: "{}" },
+            ]),
+          ),
+        );
+      } else {
+        // Second request: destroy the socket to simulate a connection failure
+        req.socket.destroy();
+      }
     });
 
-    const { port } = mockServer;
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    mockServer = { server, port, receivedBodies: [] };
 
     const rehydraFetch = createRehydraFetch({
       keyProvider: new InMemoryKeyProvider(),
       piiStorageProvider: new InMemoryPIIStorageProvider(),
       provider: "openai",
       getSessionId: async () => "fetch-fail",
-      onToolCall: async () => {
-        // Shut down the server after the first tool call so the next fetch fails
-        await new Promise<void>((resolve) => {
-          mockServer!.server.close(() => resolve());
-        });
-        return { ok: true };
-      },
+      onToolCall: async () => ({ ok: true }),
     });
 
     const response = await rehydraFetch(
@@ -961,8 +973,6 @@ describe("Tool execution loop (onToolCall)", () => {
       error: { message: string };
     };
     expect(errorBody.error.message).toContain("Upstream LLM unreachable");
-    // Prevent afterEach from trying to close an already-closed server
-    mockServer = null;
   });
 
   it("should handle invalid JSON in subsequent LLM response", async () => {
