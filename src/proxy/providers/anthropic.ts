@@ -302,4 +302,20 @@ export class AnthropicProvider implements LLMContentProvider {
       stream: false,
     };
   }
+
+  injectSystemInstruction(body: unknown, instruction: string): unknown {
+    const req = structuredClone(body) as AnthropicMessagesRequest;
+    // Prepend to the existing system prompt
+    if (typeof req.system === "string") {
+      req.system = instruction + "\n\n" + req.system;
+    } else if (Array.isArray(req.system)) {
+      req.system = [
+        { type: "text", text: instruction },
+        ...req.system,
+      ];
+    } else {
+      req.system = instruction;
+    }
+    return req;
+  }
 }

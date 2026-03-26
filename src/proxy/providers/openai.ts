@@ -288,4 +288,14 @@ export class OpenAIProvider implements LLMContentProvider {
       stream: false,
     };
   }
+
+  injectSystemInstruction(body: unknown, instruction: string): unknown {
+    const req = structuredClone(body) as OpenAIChatRequest;
+    // Prepend as the first system message
+    req.messages = [
+      { role: "system", content: instruction },
+      ...(req.messages ?? []),
+    ];
+    return req;
+  }
 }

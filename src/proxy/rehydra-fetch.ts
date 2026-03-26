@@ -14,6 +14,19 @@ import { detectProvider } from "./providers/index.js";
 import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js";
 import type { RehydraFetchConfig } from "./types.js";
 
+/**
+ * System instruction injected when onToolCall is configured.
+ * Tells the model to pass PII placeholders through as-is in tool call arguments.
+ */
+const PII_SYSTEM_INSTRUCTION = [
+  "Some values in this conversation have been replaced with PII placeholders like <PII type=\"...\" id=\"...\"/>.",
+  "These are real values that have been masked for privacy during transit.",
+  "IMPORTANT: Treat these placeholders exactly like real values.",
+  "Do NOT try to resolve, decode, remove, or work around them.",
+  "Use them as-is in commands, code, and tool calls.",
+  "For example, if a user message contains <PII type=\"EMAIL\" id=\"1\"/>, pass that exact placeholder as the email argument in any tool call.",
+].join(" ");
+
 let sessionCounter = 0;
 
 function defaultGetSessionId(): string {
@@ -145,7 +158,18 @@ export function createRehydraFetch(
       }
 
       // Rebuild the request body with anonymized text
-      const anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
+      let anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
+
+      // Inject PII handling instruction when tool loop is active
+      if (
+        config.onToolCall !== undefined &&
+        provider.injectSystemInstruction !== undefined
+      ) {
+        anonymizedBody = provider.injectSystemInstruction(
+          anonymizedBody,
+          PII_SYSTEM_INSTRUCTION,
+        );
+      }
 
       // Forward the anonymized request
       const upstreamRequest = new Request(request, {

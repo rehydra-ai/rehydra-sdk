@@ -127,4 +127,11 @@ export interface LLMContentProvider {
     assistantResponse: unknown,
     toolResults: ToolResultMessage[],
   ): unknown;
+
+  /**
+   * Inject a system-level instruction into the request body.
+   * Used to tell the model how to handle PII placeholders in tool calls.
+   * Returns a new body with the instruction prepended to the system prompt.
+   */
+  injectSystemInstruction?(body: unknown, instruction: string): unknown;
 }

@@ -31,6 +31,22 @@ interface ReceivedBody {
 
 type ResponseHandler = (body: ReceivedBody, callIndex: number) => unknown;
 
+/** Find the first message with a given role */
+function findMessage(
+  messages: ReceivedBody["messages"],
+  role: string,
+): ReceivedBody["messages"][0] | undefined {
+  return messages.find((m) => m.role === role);
+}
+
+/** Find all messages with a given role */
+function findMessages(
+  messages: ReceivedBody["messages"],
+  role: string,
+): ReceivedBody["messages"] {
+  return messages.filter((m) => m.role === role);
+}
+
 /**
  * Create a mock LLM HTTP server with a custom response handler.
  * The handler receives each request body and returns the JSON response.
@@ -132,7 +148,8 @@ describe("Tool execution loop (onToolCall)", () => {
       if (callIndex === 0) {
         // First call: return a tool call
         // The email is anonymized in the request, so the LLM echoes a PII tag
-        const userContent = body.messages[0]?.content as string;
+        const userMsg = findMessage(body.messages, "user");
+        const userContent = (userMsg?.content as string) ?? "";
         const emailTag =
           userContent.match(/<PII[^/]*\/>/)?.[0] ?? "unknown@email.com";
         return toolCallResponse([
@@ -201,11 +218,10 @@ describe("Tool execution loop (onToolCall)", () => {
 
     // Second request should have tool result messages
     const secondBody = receivedBodies[1]!;
-    expect(secondBody.messages).toHaveLength(3); // user + assistant + tool
-    expect(secondBody.messages[1].role).toBe("assistant");
-    expect(secondBody.messages[1].tool_calls).toHaveLength(1);
-    expect(secondBody.messages[2].role).toBe("tool");
-    expect(secondBody.messages[2].tool_call_id).toBe("call_1");
+    const assistantMsg = findMessage(secondBody.messages, "assistant")!;
+    expect(assistantMsg.tool_calls).toHaveLength(1);
+    const toolMsg = findMessage(secondBody.messages, "tool")!;
+    expect(toolMsg.tool_call_id).toBe("call_1");
   });
 
   it("should handle multi-round tool calls", async () => {
@@ -377,7 +393,8 @@ describe("Tool execution loop (onToolCall)", () => {
     mockServer = await createMockServer((body, callIndex) => {
       if (callIndex === 0) {
         // Return a tool call — the user message should contain PII tags
-        const userContent = body.messages[0]?.content as string;
+        const userMsg = findMessage(body.messages, "user");
+        const userContent = (userMsg?.content as string) ?? "";
         return toolCallResponse([
           {
             id: "call_1",
@@ -415,14 +432,15 @@ describe("Tool execution loop (onToolCall)", () => {
     });
 
     // First request: email should be anonymized
-    const firstUserContent = receivedBodies[0]!.messages[0]!.content as string;
+    const firstUserMsg = findMessage(receivedBodies[0]!.messages, "user")!;
+    const firstUserContent = firstUserMsg.content as string;
     expect(firstUserContent).toContain("<PII");
     expect(firstUserContent).not.toContain("john@example.com");
 
     // Second request: the same user message should have the SAME PII tag
     // (not double-anonymized like <<PII...>> or mangled)
-    const secondUserContent = receivedBodies[1]!.messages[0]!
-      .content as string;
+    const secondUserMsg = findMessage(receivedBodies[1]!.messages, "user")!;
+    const secondUserContent = secondUserMsg.content as string;
     expect(secondUserContent).toBe(firstUserContent);
   });
 
@@ -467,7 +485,8 @@ describe("Tool execution loop (onToolCall)", () => {
 
     // The tool result sent to the LLM should have anonymized PII
     const secondBody = receivedBodies[1]!;
-    const toolResultContent = secondBody.messages[2]!.content as string;
+    const toolMsg = findMessage(secondBody.messages, "tool")!;
+    const toolResultContent = toolMsg.content as string;
     expect(toolResultContent).not.toContain("jane@secret.com");
     expect(toolResultContent).toContain("<PII");
   });
@@ -519,8 +538,7 @@ describe("Tool execution loop (onToolCall)", () => {
     // The assistant message in the second request should have anonymized
     // tool_call arguments — no raw PII
     const secondBody = receivedBodies[1]!;
-    const assistantMsg = secondBody.messages[1]!;
-    expect(assistantMsg.role).toBe("assistant");
+    const assistantMsg = findMessage(secondBody.messages, "assistant")!;
     const toolCallArgs = assistantMsg.tool_calls![0].function.arguments;
     expect(toolCallArgs).not.toContain("alice@realcompany.com");
     expect(toolCallArgs).toContain("PII");
@@ -530,7 +548,8 @@ describe("Tool execution loop (onToolCall)", () => {
     mockServer = await createMockServer((body, callIndex) => {
       if (callIndex === 0) {
         // Extract the PII tag for the email from the user message
-        const userContent = body.messages[0]?.content as string;
+        const userMsg = findMessage(body.messages, "user");
+        const userContent = (userMsg?.content as string) ?? "";
         const emailTag =
           userContent.match(/<PII[^/]*\/>/)?.[0] ?? "unknown";
         return toolCallResponse([
@@ -576,15 +595,16 @@ describe("Tool execution loop (onToolCall)", () => {
     });
 
     // Extract the email PII ID from the first request
-    const firstUserContent = receivedBodies[0]!.messages[0]!.content as string;
+    const firstUserMsg = findMessage(receivedBodies[0]!.messages, "user")!;
+    const firstUserContent = firstUserMsg.content as string;
     const idMatch = firstUserContent.match(/id="(\d+)"/);
     expect(idMatch).not.toBeNull();
     const emailId = idMatch![1];
 
     // The tool result should reuse the same PII ID for the same email
     // (content is JSON-stringified, so quotes are escaped)
-    const toolResultContent = receivedBodies[1]!.messages[2]!
-      .content as string;
+    const toolMsg = findMessage(receivedBodies[1]!.messages, "tool")!;
+    const toolResultContent = toolMsg.content as string;
     expect(toolResultContent).toContain(`id=\\"${emailId}\\"`);
     expect(toolResultContent).toContain('type=\\"EMAIL\\"');
   });
