@@ -1,5 +1,5 @@
 {
-  ".": "0.6.5",
-  "packages/cli": "0.6.5",
-  "packages/opencode-plugin": "0.6.5"
+  ".": "0.7.0",
+  "packages/cli": "0.6.6",
+  "packages/opencode-plugin": "0.6.6"
 }
