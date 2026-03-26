@@ -18,11 +18,9 @@ import { InMemoryKeyProvider } from "../crypto/index.js";
 import { PIIType, createDefaultPolicy, SECRET_PII_TYPES } from "../types/index.js";
 import type { AnonymizationPolicy } from "../types/index.js";
 import type { PIITypeName, RehydraPluginOptions } from "./types.js";
+import { DEFAULT_PII_SYSTEM_INSTRUCTION } from "../proxy/system-instruction.js";
 
-const REHYDRA_INSTRUCTION = `<rehydra>
-Some values in this conversation have been replaced with PII placeholders like <PII type="..." id="..."/>. These are real values that have been masked for privacy during transit. They will be automatically rehydrated (replaced with the original values) before any command is executed locally.
-IMPORTANT: Treat these placeholders exactly like real values. Do NOT try to resolve, decode, remove, or work around them. Use them as-is in commands, code, and tool calls. The rehydration layer handles the rest.
-</rehydra>`;
+const REHYDRA_INSTRUCTION = `<rehydra>\n${DEFAULT_PII_SYSTEM_INSTRUCTION}\n</rehydra>`;
 
 /**
  * OpenCode Plugin types — matches signatures from @opencode-ai/plugin.

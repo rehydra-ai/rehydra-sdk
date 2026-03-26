@@ -3,7 +3,12 @@
  * Handles Anthropic Messages API format.
  */
 
-import type { LLMContentProvider, ToolCallDelta } from "./types.js";
+import type {
+  LLMContentProvider,
+  ToolCallDelta,
+  ToolCallInfo,
+  ToolResultMessage,
+} from "./types.js";
 
 interface AnthropicMessage {
   role: string;
@@ -240,5 +245,77 @@ export class AnthropicProvider implements LLMContentProvider {
       return event.index;
     }
     return null;
+  }
+
+  // ── Tool execution loop methods ──────────────────────────────────
+
+  hasResponseToolCalls(body: unknown): boolean {
+    const res = body as AnthropicMessagesResponse;
+    if (!Array.isArray(res.content)) return false;
+    return res.content.some((b) => b.type === "tool_use");
+  }
+
+  extractResponseToolCallInfo(body: unknown): ToolCallInfo[] {
+    const res = body as AnthropicMessagesResponse;
+    const infos: ToolCallInfo[] = [];
+    for (const block of res.content ?? []) {
+      if (block.type === "tool_use" && block.id !== undefined && block.name !== undefined) {
+        infos.push({
+          id: block.id,
+          name: block.name,
+          arguments: JSON.stringify(block.input ?? {}),
+        });
+      }
+    }
+    return infos;
+  }
+
+  extractMessages(body: unknown): unknown[] {
+    const req = body as AnthropicMessagesRequest;
+    return req.messages ?? [];
+  }
+
+  buildToolLoopBody(
+    originalBody: unknown,
+    currentMessages: unknown[],
+    assistantResponse: unknown,
+    toolResults: ToolResultMessage[],
+  ): unknown {
+    const res = assistantResponse as AnthropicMessagesResponse;
+
+    const newMessages = [
+      ...currentMessages,
+      { role: "assistant" as const, content: res.content },
+      {
+        role: "user" as const,
+        content: toolResults.map((tr) => ({
+          type: "tool_result" as const,
+          tool_use_id: tr.toolCallId,
+          content: tr.content,
+        })),
+      },
+    ];
+
+    return {
+      ...(originalBody as Record<string, unknown>),
+      messages: newMessages,
+      stream: false,
+    };
+  }
+
+  injectSystemInstruction(body: unknown, instruction: string): unknown {
+    const req = structuredClone(body) as AnthropicMessagesRequest;
+    // Prepend to the existing system prompt
+    if (typeof req.system === "string") {
+      req.system = instruction + "\n\n" + req.system;
+    } else if (Array.isArray(req.system)) {
+      req.system = [
+        { type: "text", text: instruction },
+        ...req.system,
+      ];
+    } else {
+      req.system = instruction;
+    }
+    return req;
   }
 }

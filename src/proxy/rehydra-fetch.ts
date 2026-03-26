@@ -11,8 +11,9 @@ import type { RawPIIMap } from "../pipeline/tagger.js";
 import { AnonymizerSessionImpl } from "../storage/session.js";
 import { SSEParser, isSSEDone, serializeSSEEvent } from "./sse-parser.js";
 import { detectProvider } from "./providers/index.js";
-import type { LLMContentProvider } from "./providers/types.js";
+import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js";
 import type { RehydraFetchConfig } from "./types.js";
+import { DEFAULT_PII_SYSTEM_INSTRUCTION } from "./system-instruction.js";
 
 let sessionCounter = 0;
 
@@ -134,18 +135,39 @@ export function createRehydraFetch(
       // Extract and anonymize text from the request
       const texts = provider.extractRequestText(body);
       const anonymizedTexts: string[] = [];
+      let piiDetected = false;
 
-      for (const text of texts) {
+      for (let i = 0; i < texts.length; i++) {
         const result = await session.anonymize(
-          text,
+          texts[i]!,
           config.locale,
           config.policy,
         );
         anonymizedTexts.push(result.anonymizedText);
+        if (result.anonymizedText !== texts[i]) {
+          piiDetected = true;
+        }
       }
 
       // Rebuild the request body with anonymized text
-      const anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
+      let anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
+
+      // Inject PII handling instruction when anonymization replaced something.
+      // Can be disabled with systemInstruction: false, or overridden with a custom string.
+      if (
+        piiDetected &&
+        config.systemInstruction !== false &&
+        provider.injectSystemInstruction !== undefined
+      ) {
+        const instruction =
+          typeof config.systemInstruction === "string"
+            ? config.systemInstruction
+            : DEFAULT_PII_SYSTEM_INSTRUCTION;
+        anonymizedBody = provider.injectSystemInstruction(
+          anonymizedBody,
+          instruction,
+        );
+      }
 
       // Forward the anonymized request
       const upstreamRequest = new Request(request, {
@@ -171,6 +193,25 @@ export function createRehydraFetch(
 
       if (isSSE && response.body !== null) {
         return rehydrateSSEResponse(response, session, provider, config);
+      }
+
+      // Tool execution loop: when onToolCall is configured and provider
+      // supports it, intercept tool call responses and run them server-side
+      if (
+        config.onToolCall !== undefined &&
+        provider.hasResponseToolCalls !== undefined &&
+        provider.extractResponseToolCallInfo !== undefined &&
+        provider.extractMessages !== undefined &&
+        provider.buildToolLoopBody !== undefined
+      ) {
+        return await handleToolLoop(
+          response,
+          anonymizedBody,
+          session,
+          provider,
+          config,
+          request,
+        );
       }
 
       return rehydrateJSONResponse(response, session, provider);
@@ -204,6 +245,18 @@ async function rehydrateJSONResponse(
     });
   }
 
+  return rehydrateJSONResponseFromBody(body, response, session, provider);
+}
+
+/**
+ * Rehydrate a pre-parsed JSON response body.
+ */
+async function rehydrateJSONResponseFromBody(
+  body: unknown,
+  response: Response,
+  session: AnonymizerSessionImpl,
+  provider: LLMContentProvider,
+): Promise<Response> {
   // Extract response text and rehydrate
   const responseTexts = provider.extractResponseText(body);
   const rehydratedTexts: string[] = [];
@@ -240,6 +293,173 @@ async function rehydrateJSONResponse(
     statusText: response.statusText,
     headers: response.headers,
   });
+}
+
+/**
+ * Handle multi-round tool execution loop.
+ *
+ * When the LLM returns tool calls, this function:
+ * 1. Rehydrates tool call arguments (restores real PII)
+ * 2. Calls the user's onToolCall callback for each tool call
+ * 3. Anonymizes the result
+ * 4. Appends assistant + tool result messages to the conversation
+ * 5. Sends the next request (without re-anonymizing existing messages)
+ * 6. Repeats until the LLM returns a final response or maxToolRounds is hit
+ */
+async function handleToolLoop(
+  initialResponse: Response,
+  anonymizedBody: unknown,
+  session: AnonymizerSessionImpl,
+  provider: LLMContentProvider,
+  config: RehydraFetchConfig,
+  originalRequest: Request,
+): Promise<Response> {
+  const maxRounds = config.maxToolRounds ?? 10;
+
+  // Parse the initial response
+  const rawText = await initialResponse.text();
+  let currentResponse: unknown;
+  try {
+    currentResponse = JSON.parse(rawText);
+  } catch {
+    return new Response(rawText, {
+      status: initialResponse.status,
+      statusText: initialResponse.statusText,
+      headers: initialResponse.headers,
+    });
+  }
+
+  // If the first response doesn't have tool calls, just rehydrate normally
+  if (!provider.hasResponseToolCalls!(currentResponse)) {
+    return rehydrateJSONResponseFromBody(
+      currentResponse,
+      initialResponse,
+      session,
+      provider,
+    );
+  }
+
+  // Track the anonymized messages array across rounds
+  let currentMessages = provider.extractMessages!(anonymizedBody);
+  let lastUpstreamResponse = initialResponse;
+  let round = 0;
+
+  while (
+    round < maxRounds &&
+    provider.hasResponseToolCalls!(currentResponse)
+  ) {
+    round++;
+
+    // Extract tool call details (arguments are still in anonymized form)
+    const toolCallInfos =
+      provider.extractResponseToolCallInfo!(currentResponse);
+
+    // Rehydrate arguments and invoke the user's callback
+    const toolResults: ToolResultMessage[] = [];
+    for (const tc of toolCallInfos) {
+      // Rehydrate the arguments string to restore real PII
+      const rehydratedArgsStr = await session.rehydrate(tc.arguments);
+      let parsedArgs: Record<string, unknown>;
+      try {
+        parsedArgs = JSON.parse(rehydratedArgsStr) as Record<string, unknown>;
+      } catch {
+        parsedArgs = { raw: rehydratedArgsStr };
+      }
+
+      // Call the user's tool handler with real PII
+      const result = await config.onToolCall!(tc.name, parsedArgs, tc.id);
+
+      // Anonymize the result using the same session (maintains PII ID continuity)
+      const anonymizedResult = await session.anonymizeJson(result);
+
+      toolResults.push({
+        toolCallId: tc.id,
+        content:
+          typeof anonymizedResult === "string"
+            ? anonymizedResult
+            : JSON.stringify(anonymizedResult),
+      });
+    }
+
+    // Anonymize the assistant's tool call arguments before appending.
+    // The LLM may have generated real-looking PII in tool_use inputs
+    // instead of echoing back the PII tags it received.
+    let sanitizedResponse = currentResponse;
+    if (
+      provider.extractResponseToolCalls !== undefined &&
+      provider.rebuildResponseToolCalls !== undefined
+    ) {
+      const rawArgs = provider.extractResponseToolCalls(currentResponse);
+      if (rawArgs.length > 0) {
+        const anonymizedArgs: string[] = [];
+        for (const arg of rawArgs) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(arg);
+          } catch {
+            parsed = arg;
+          }
+          const anonymized = await session.anonymizeJson(parsed);
+          anonymizedArgs.push(
+            typeof anonymized === "string"
+              ? anonymized
+              : JSON.stringify(anonymized),
+          );
+        }
+        sanitizedResponse = provider.rebuildResponseToolCalls(
+          currentResponse,
+          anonymizedArgs,
+        );
+      }
+    }
+
+    // Build the next request body (no re-anonymization — messages are already anonymized)
+    const nextBody = provider.buildToolLoopBody!(
+      anonymizedBody,
+      currentMessages,
+      sanitizedResponse,
+      toolResults,
+    );
+
+    // Update message array for next round
+    currentMessages = provider.extractMessages!(nextBody);
+
+    // Send the next request to the LLM
+    const nextRequest = new Request(originalRequest, {
+      body: JSON.stringify(nextBody),
+    });
+
+    let nextResponse: Response;
+    try {
+      nextResponse = await fetch(nextRequest);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Upstream request failed";
+      return errorResponse(502, `Upstream LLM unreachable: ${msg}`);
+    }
+
+    lastUpstreamResponse = nextResponse;
+
+    // Parse the new response
+    const nextRawText = await nextResponse.text();
+    try {
+      currentResponse = JSON.parse(nextRawText);
+    } catch {
+      return new Response(nextRawText, {
+        status: nextResponse.status,
+        statusText: nextResponse.statusText,
+        headers: nextResponse.headers,
+      });
+    }
+  }
+
+  // Rehydrate and return the final response
+  return rehydrateJSONResponseFromBody(
+    currentResponse,
+    lastUpstreamResponse,
+    session,
+    provider,
+  );
 }
 
 /**

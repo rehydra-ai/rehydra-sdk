@@ -7,7 +7,11 @@ import type { LLMContentProvider } from "./types.js";
 import { OpenAIProvider } from "./openai.js";
 import { AnthropicProvider } from "./anthropic.js";
 
-export type { LLMContentProvider } from "./types.js";
+export type {
+  LLMContentProvider,
+  ToolCallInfo,
+  ToolResultMessage,
+} from "./types.js";
 export { OpenAIProvider } from "./openai.js";
 export { AnthropicProvider } from "./anthropic.js";
 

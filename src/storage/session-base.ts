@@ -8,6 +8,7 @@ import type {
   AnonymizationResult,
   AnonymizationPolicy,
 } from "../types/index.js";
+import { walkJson } from "../utils/json-walk.js";
 import type { KeyProvider } from "../crypto/index.js";
 import { decryptPIIMap, encryptPIIMap } from "../crypto/index.js";
 import { rehydrate as rehydrateText } from "../pipeline/tagger.js";
@@ -152,6 +153,21 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
 
     // Rehydrate the text
     return rehydrateText(text, piiMap);
+  }
+
+  async anonymizeJson<T>(
+    value: T,
+    locale?: string,
+    policy?: Partial<AnonymizationPolicy>,
+  ): Promise<T> {
+    return walkJson(value, async (s: string) => {
+      const result = await this.anonymize(s, locale, policy);
+      return result.anonymizedText;
+    });
+  }
+
+  async rehydrateJson<T>(value: T): Promise<T> {
+    return walkJson(value, (s: string) => this.rehydrate(s));
   }
 
   async load(): Promise<StoredPIIMap | null> {
