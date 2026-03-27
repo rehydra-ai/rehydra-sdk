@@ -80,4 +80,25 @@ describe("run()", () => {
     const output = stdoutChunks.join("");
     expect(output).not.toMatch(/\x1b\[/);
   });
+
+  it("should show proxy command in help", async () => {
+    const exitCode = await run(["--help"]);
+    expect(exitCode).toBe(0);
+    const output = stdoutChunks.join("");
+    expect(output).toContain("proxy <provider>");
+    expect(output).toContain("--port");
+    expect(output).toContain("--upstream");
+  });
+
+  it("should dispatch proxy command (missing provider error)", async () => {
+    // Proxy command throws CLIError when no provider given,
+    // which propagates to the caller (bin.ts catches it)
+    await expect(run(["proxy"])).rejects.toThrow("Missing provider argument");
+  });
+
+  it("should accept -p as short flag for --port", async () => {
+    // Validates -p is accepted by parseArgs without a parse error (would throw "Unknown option" otherwise).
+    // With no provider, proxyCommand throws CLIError — that's fine, the flag was accepted.
+    await expect(run(["proxy", "-p", "9090"])).rejects.toThrow("Missing provider argument");
+  });
 });

@@ -8,6 +8,8 @@ export { createRehydraProxy } from "./rehydra-proxy.js";
 export { wrapLLMClient } from "./wrap-client.js";
 export {
   createRehydraProxyServer,
+  incomingMessageToRequest,
+  writeResponse,
   type RehydraProxyServerConfig,
   type RehydraProxyServer,
 } from "./proxy-server.js";

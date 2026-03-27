@@ -104,4 +104,14 @@ export interface RehydraProxyConfig extends RehydraFetchConfig {
 
   /** Path prefix to strip before forwarding to upstream */
   stripPrefix?: string;
+
+  /**
+   * API key to inject on upstream requests, replacing any client-sent
+   * auth headers. Useful when the client uses OAuth (e.g. Claude Code
+   * with Max) but the upstream requires API key auth.
+   *
+   * For Anthropic: sent as `x-api-key`
+   * For OpenAI: sent as `Authorization: Bearer <key>`
+   */
+  apiKey?: string;
 }

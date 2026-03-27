@@ -5,6 +5,7 @@ import { anonymizeCommand } from "./commands/anonymize.js";
 import { rehydrateCommand } from "./commands/rehydrate.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { setupNerCommand } from "./commands/setup-ner.js";
+import { proxyCommand } from "./commands/proxy.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json") as { version: string };
@@ -22,6 +23,9 @@ export interface ParsedOptions {
   "env-file"?: string;
   verbose: boolean;
   quiet: boolean;
+  port?: string;
+  upstream?: string;
+  "api-key"?: string;
 }
 
 const HELP_TEXT = `
@@ -31,10 +35,11 @@ ${bold("USAGE")}
   rehydra <command> [file] [options]
 
 ${bold("COMMANDS")}
-  anonymize <file>     Anonymize a file or stdin
-  rehydrate <file>     Rehydrate a previously anonymized file
-  inspect <file>       Show detected PII without anonymizing (dry run)
-  setup-ner            Download and set up NER model
+  anonymize <file>        Anonymize a file or stdin
+  rehydrate <file>        Rehydrate a previously anonymized file
+  inspect <file>          Show detected PII without anonymizing (dry run)
+  proxy <provider>        Start a PII-filtering proxy for LLM APIs
+  setup-ner               Download and set up NER model
 
 ${bold("OPTIONS")}
   -o, --output <file>      Output file (default: stdout)
@@ -47,6 +52,9 @@ ${bold("OPTIONS")}
       --locale <locale>    Locale hint for detection (e.g., de-DE)
       --secrets            Enable secrets/credentials detection
       --env-file <file>    .env file path for literal value redaction
+  -p, --port <port>        Proxy port (default: 8787)
+      --upstream <url>     Custom upstream URL (overrides provider default)
+      --api-key <key>      LLM API key (or set LLM_API_KEY env var)
       --no-color           Disable colored output
       --verbose            Show detection details
   -q, --quiet              Suppress non-essential output
@@ -69,6 +77,10 @@ ${bold("EXAMPLES")}
   ${dim("# Inspect detected PII")}
   rehydra inspect input.txt
 
+  ${dim("# Start a proxy for Claude Code")}
+  rehydra proxy claude
+  ${dim("# then: export ANTHROPIC_BASE_URL=http://127.0.0.1:8787")}
+
 ${bold("EXIT CODES")}
   0  Success
   1  Error
@@ -85,7 +97,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
       options: {
         output: { type: "string", short: "o" },
         format: { type: "string", short: "f", default: "text" },
-        ner: { type: "string", default: "disabled" },
+        ner: { type: "string" },
         "pii-map": { type: "string", default: ".rehydra-pii-map.json" },
         key: { type: "string" },
         types: { type: "string" },
@@ -93,6 +105,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
         locale: { type: "string" },
         secrets: { type: "boolean", default: false },
         "env-file": { type: "string" },
+        port: { type: "string", short: "p" },
+        upstream: { type: "string" },
+        "api-key": { type: "string" },
         "no-color": { type: "boolean", default: false },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", short: "q", default: false },
@@ -146,6 +161,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
     "env-file": values["env-file"] as string | undefined,
     verbose: values["verbose"] === true,
     quiet: values["quiet"] === true,
+    port: values["port"] as string | undefined,
+    upstream: values["upstream"] as string | undefined,
+    "api-key": values["api-key"] as string | undefined,
   };
 
   switch (command) {
@@ -155,6 +173,15 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
       return rehydrateCommand(filePath, options);
     case "inspect":
       return inspectCommand(filePath, options);
+    case "proxy": {
+      // Default to NER quantized for proxy (override global default of "disabled")
+      // unless the user explicitly passed --ner
+      const explicitNer = values["ner"] as string | undefined;
+      if (explicitNer === undefined) {
+        options.ner = "quantized";
+      }
+      return proxyCommand(filePath, options);
+    }
     case "setup-ner":
       return setupNerCommand(options);
     default:

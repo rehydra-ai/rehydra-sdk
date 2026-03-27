@@ -101,7 +101,7 @@ export async function createRehydraProxyServer(
 /**
  * Convert a Node.js IncomingMessage to a Web API Request
  */
-function incomingMessageToRequest(
+export function incomingMessageToRequest(
   req: IncomingMessage,
   host: string,
   port: number,
@@ -155,7 +155,7 @@ function nodeStreamToReadableStream(nodeStream: IncomingMessage): ReadableStream
 /**
  * Write a Web API Response to a Node.js ServerResponse
  */
-async function writeResponse(
+export async function writeResponse(
   res: ServerResponse,
   webResponse: Response,
 ): Promise<void> {

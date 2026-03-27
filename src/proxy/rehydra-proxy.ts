@@ -12,6 +12,7 @@ const DEFAULT_FORWARD_HEADERS = [
   "content-type",
   "x-api-key",
   "anthropic-version",
+  "anthropic-beta",
   "openai-organization",
   "openai-project",
 ];
@@ -80,6 +81,25 @@ export function createRehydraProxy(
         headers.set(name, value);
       }
     }
+    // Inject proxy-configured API key, replacing any client auth headers.
+    // This is needed when the client uses OAuth (e.g. Claude Code with Max)
+    // but the upstream only accepts API key auth.
+    if (config.apiKey !== undefined) {
+      headers.delete("authorization");
+      if (upstreamUrl.includes("anthropic")) {
+        headers.set("x-api-key", config.apiKey);
+      } else {
+        headers.set("authorization", `Bearer ${config.apiKey}`);
+      }
+    } else if (headers.has("x-api-key") && headers.has("authorization")) {
+      // When client sends both, prefer API key over OAuth token
+      headers.delete("authorization");
+    }
+    // Disable upstream compression — the proxy reads and modifies the response
+    // body, so we need it uncompressed. Without this, Node's fetch may
+    // auto-decompress but leave content-encoding headers, causing ZlibError
+    // on clients that try to decompress the already-decompressed body.
+    headers.set("accept-encoding", "identity");
 
     // Forward via rehydraFetch (which handles anonymization/rehydration)
     return rehydraFetch(upstreamUrl, {
