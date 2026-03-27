@@ -3,9 +3,10 @@
  * Validates anonymized output and performs leak scan
  */
 
-import { PIIType, DetectedEntity, AnonymizationPolicy } from '../types/index.js';
+import { PIIType, DetectedEntity, AnonymizationPolicy, TagFormat, DEFAULT_TAG_FORMAT } from '../types/index.js';
 import { spansOverlap } from '../utils/offsets.js';
 import { extractTags, isValidTag } from './tagger.js';
+import { escapeRegExp } from '../utils/regex.js';
 
 /**
  * Validation result
@@ -98,7 +99,8 @@ export function validateOutput(
   anonymizedText: string,
   entities: DetectedEntity[],
   piiMapKeys: string[],
-  policy: AnonymizationPolicy
+  policy: AnonymizationPolicy,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): ValidationResult {
   const errors: ValidationError[] = [];
 
@@ -111,11 +113,11 @@ export function validateOutput(
   errors.push(...idErrors);
 
   // Validate tags in text are well-formed
-  const tagErrors = checkTags(anonymizedText);
+  const tagErrors = checkTags(anonymizedText, tagFormat);
   errors.push(...tagErrors);
 
   // Validate tag count matches entity count
-  const countErrors = checkTagEntityMatch(anonymizedText, entities);
+  const countErrors = checkTagEntityMatch(anonymizedText, entities, tagFormat);
   errors.push(...countErrors);
 
   // Validate all entities have entries in PII map
@@ -127,7 +129,7 @@ export function validateOutput(
   let potentialLeaks: LeakScanMatch[] | undefined;
 
   if (policy.enableLeakScan) {
-    const leakResult = performLeakScan(anonymizedText, policy);
+    const leakResult = performLeakScan(anonymizedText, policy, tagFormat);
     potentialLeaks = leakResult.matches;
     leakScanPassed = potentialLeaks.length === 0;
 
@@ -209,23 +211,34 @@ function checkUniqueIds(entities: DetectedEntity[]): ValidationError[] {
 /**
  * Checks that all tags in text are well-formed
  */
-function checkTags(anonymizedText: string): ValidationError[] {
+function checkTags(
+  anonymizedText: string,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): ValidationError[] {
   const errors: ValidationError[] = [];
+  const keyword = tagFormat.keyword ?? "PII";
+  const escapedOpen = escapeRegExp(tagFormat.open);
+  const escapedClose = escapeRegExp(tagFormat.close);
 
   // Find anything that looks like a PII tag
-  const tagLikePattern = /<PII[^>]*>/g;
+  // Build pattern: OPEN KEYWORD ... CLOSE
+  const tagLikePattern = new RegExp(
+    `${escapedOpen}${keyword}[^]*?${escapedClose}`,
+    "g"
+  );
   let match: RegExpExecArray | null;
 
   while ((match = tagLikePattern.exec(anonymizedText)) !== null) {
-    // Check if it ends with /> for self-closing
-    const fullTag = match[0].endsWith('/>') ? match[0] : match[0] + '/>';
-
-    if (!isValidTag(fullTag) && !match[0].endsWith('/>')) {
-      errors.push({
-        code: ValidationErrorCode.MALFORMED_TAG,
-        message: `Malformed PII tag at position ${match.index}`,
-        details: { tag: match[0], position: match.index },
-      });
+    if (!isValidTag(match[0], tagFormat)) {
+      // For XML-style, also try appending close delimiter
+      const fullTag = match[0] + tagFormat.close;
+      if (!isValidTag(fullTag, tagFormat)) {
+        errors.push({
+          code: ValidationErrorCode.MALFORMED_TAG,
+          message: `Malformed PII tag at position ${match.index}`,
+          details: { tag: match[0], position: match.index },
+        });
+      }
     }
   }
 
@@ -237,10 +250,11 @@ function checkTags(anonymizedText: string): ValidationError[] {
  */
 function checkTagEntityMatch(
   anonymizedText: string,
-  entities: DetectedEntity[]
+  entities: DetectedEntity[],
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): ValidationError[] {
   const errors: ValidationError[] = [];
-  const tags = extractTags(anonymizedText);
+  const tags = extractTags(anonymizedText, tagFormat);
 
   // Get unique entity IDs
   const entityIds = new Set(entities.map((e) => e.id));
@@ -289,12 +303,18 @@ function checkPIIMapCompleteness(
  */
 function performLeakScan(
   anonymizedText: string,
-  policy: AnonymizationPolicy
+  policy: AnonymizationPolicy,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): { matches: LeakScanMatch[] } {
   const matches: LeakScanMatch[] = [];
 
   // Skip scanning inside PII tags
-  const textWithoutTags = anonymizedText.replace(/<PII[^>]*\/>/g, ' '.repeat(20));
+  const keyword = tagFormat.keyword ?? "PII";
+  const tagStripPattern = new RegExp(
+    `${escapeRegExp(tagFormat.open)}${keyword}[^]*?${escapeRegExp(tagFormat.close)}`,
+    "g"
+  );
+  const textWithoutTags = anonymizedText.replace(tagStripPattern, ' '.repeat(20));
 
   for (const { type, pattern, name } of LEAK_SCAN_PATTERNS) {
     // Skip if type not enabled in policy
@@ -308,7 +328,7 @@ function performLeakScan(
     while ((match = globalPattern.exec(textWithoutTags)) !== null) {
       // Double-check this isn't inside a tag
       const position = match.index;
-      const isInTag = isPositionInsideTag(anonymizedText, position);
+      const isInTag = isPositionInsideTag(anonymizedText, position, tagFormat);
 
       if (!isInTag) {
         matches.push({
@@ -327,17 +347,24 @@ function performLeakScan(
 /**
  * Checks if a position is inside a PII tag
  */
-function isPositionInsideTag(text: string, position: number): boolean {
-  // Find the nearest < before position
-  const before = text.lastIndexOf('<', position);
+function isPositionInsideTag(
+  text: string,
+  position: number,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): boolean {
+  const open = tagFormat.open;
+  const close = tagFormat.close;
+
+  // Find the nearest open delimiter before position
+  const before = text.lastIndexOf(open, position);
   if (before === -1) return false;
 
-  // Find the nearest > after the <
-  const after = text.indexOf('>', before);
+  // Find the nearest close delimiter after the open
+  const after = text.indexOf(close, before);
   if (after === -1) return false;
 
-  // Position is inside tag if it's between < and >
-  return position > before && position < after;
+  // Position is inside tag if it's between open and close
+  return position > before && position < after + close.length;
 }
 
 /**

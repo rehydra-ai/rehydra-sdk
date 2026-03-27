@@ -3,7 +3,7 @@
  */
 
 import type { AnonymizerConfig } from "../core/anonymizer.js";
-import type { AnonymizationPolicy } from "../types/index.js";
+import type { AnonymizationPolicy, TagFormat } from "../types/index.js";
 import type { PIIType } from "../types/pii-types.js";
 
 /** PII type names as strings, for convenience in plugin config */
@@ -33,4 +33,7 @@ export interface RehydraPluginOptions {
 
   /** Advanced: full anonymizer config (overrides envFiles/redactValues/minValueLength) */
   anonymizer?: AnonymizerConfig;
+
+  /** Tag format configuration (shorthand — also available via anonymizer.tagFormat) */
+  tagFormat?: TagFormat;
 }
