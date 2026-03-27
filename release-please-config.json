@@ -4,13 +4,13 @@
   "pull-request-title-pattern": "chore: release v${version}",
   "plugins": [
     {
-      "type": "node-workspace",
-      "updateAllPackages": true
-    },
-    {
       "type": "linked-versions",
       "groupName": "rehydra",
       "components": ["rehydra", "@rehydra/cli", "@rehydra/opencode"]
+    },
+    {
+      "type": "node-workspace",
+      "updateAllPackages": true
     }
   ],
   "packages": {
