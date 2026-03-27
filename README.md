@@ -29,6 +29,33 @@
 
 ## Quick Start
 
+### Proxy — protect your AI coding tools
+
+Run a local proxy that anonymizes PII before it reaches the LLM and rehydrates responses. Works with Claude Code, Cursor, and any OpenAI/Anthropic-compatible client.
+
+```bash
+npx @rehydra/cli proxy claude --api-key sk-ant-...
+```
+
+```
+  rehydra proxy
+
+  Provider   anthropic (https://api.anthropic.com)
+  Listening  http://127.0.0.1:8787
+  NER        quantized
+
+  Configure your tools:
+
+  Claude Code
+    ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
+```
+
+Names, emails, phone numbers, and other PII are replaced with placeholders in transit. Tool results (file reads, bash output) are anonymized. Tool call arguments (file writes, bash commands) are rehydrated. The LLM never sees real PII.
+
+> **Note:** The proxy requires an [Anthropic API key](https://console.anthropic.com/settings/keys). Claude Max/Pro subscriptions use OAuth which `api.anthropic.com` does not support through proxies.
+
+### Library — embed PII anonymization in your app
+
 ```typescript
 import { anonymize } from 'rehydra';
 
@@ -40,10 +67,22 @@ const { anonymizedText } = await anonymize(
 
 Works in **Node.js**, **Bun**, and **browsers**. No data leaves your machine.
 
+### OpenCode plugin — scrub secrets from your coding agent
+
+```bash
+npm install @rehydra/opencode
+```
+
+```json
+{ "plugin": ["@rehydra/opencode"] }
+```
+
+Intercepts the conversation between [OpenCode](https://github.com/sst/opencode) and the LLM. Secrets from `.env` files are replaced with placeholders before they leave your machine and restored before tools execute.
+
 ## Features
 
 - **Regex + NER detection** — emails, phones, IBANs, credit cards, names, orgs, locations, and more
-- **LLM Proxy** — drop-in `fetch` wrapper or standalone proxy server for OpenAI, Anthropic, and compatible APIs
+- **LLM Proxy** — CLI proxy or drop-in `fetch` wrapper for OpenAI, Anthropic, and compatible APIs
 - **Streaming** — Transform stream with low-latency mode for real-time LLM token streams
 - **Sessions** — consistent PII IDs across multi-message conversations with persistent storage
 - **Encryption** — AES-256-GCM via Web Crypto API
@@ -54,8 +93,6 @@ Works in **Node.js**, **Bun**, and **browsers**. No data leaves your machine.
 ```typescript
 import {
   createAnonymizer,
-  decryptPIIMap,
-  rehydrate,
   InMemoryKeyProvider,
   SQLitePIIStorageProvider,
 } from 'rehydra';

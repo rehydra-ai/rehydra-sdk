@@ -15,6 +15,17 @@ import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js
 import type { RehydraFetchConfig } from "./types.js";
 import { DEFAULT_PII_SYSTEM_INSTRUCTION } from "./system-instruction.js";
 
+/** Headers to strip from proxied responses — the body is decompressed and may be modified. */
+const STRIP_RESPONSE_HEADERS = ["content-encoding", "content-length"];
+
+function stripResponseHeaders(headers: Headers): Headers {
+  const cleaned = new Headers(headers);
+  for (const h of STRIP_RESPONSE_HEADERS) {
+    cleaned.delete(h);
+  }
+  return cleaned;
+}
+
 let sessionCounter = 0;
 
 function defaultGetSessionId(): string {
@@ -241,7 +252,7 @@ async function rehydrateJSONResponse(
     return new Response(rawText, {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
+      headers: stripResponseHeaders(response.headers),
     });
   }
 
@@ -325,7 +336,7 @@ async function handleToolLoop(
     return new Response(rawText, {
       status: initialResponse.status,
       statusText: initialResponse.statusText,
-      headers: initialResponse.headers,
+      headers: stripResponseHeaders(initialResponse.headers),
     });
   }
 
@@ -448,7 +459,7 @@ async function handleToolLoop(
       return new Response(nextRawText, {
         status: nextResponse.status,
         statusText: nextResponse.statusText,
-        headers: nextResponse.headers,
+        headers: stripResponseHeaders(nextResponse.headers),
       });
     }
   }

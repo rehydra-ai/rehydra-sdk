@@ -22,6 +22,8 @@ interface AnthropicContentBlock {
   id?: string;
   name?: string;
   input?: Record<string, unknown>;
+  tool_use_id?: string;
+  content?: string | AnthropicContentBlock[];
 }
 
 interface AnthropicMessagesRequest {
@@ -85,6 +87,17 @@ export class AnthropicProvider implements LLMContentProvider {
         for (const block of message.content) {
           if (block.type === "text" && typeof block.text === "string") {
             texts.push(block.text);
+          } else if (block.type === "tool_result") {
+            // tool_result content can be a string or an array of content blocks
+            if (typeof block.content === "string") {
+              texts.push(block.content);
+            } else if (Array.isArray(block.content)) {
+              for (const nested of block.content) {
+                if (nested.type === "text" && typeof nested.text === "string") {
+                  texts.push(nested.text);
+                }
+              }
+            }
           }
         }
       }
@@ -115,6 +128,16 @@ export class AnthropicProvider implements LLMContentProvider {
         for (const block of message.content) {
           if (block.type === "text" && typeof block.text === "string") {
             block.text = anonymizedTexts[idx++]!;
+          } else if (block.type === "tool_result") {
+            if (typeof block.content === "string") {
+              block.content = anonymizedTexts[idx++]!;
+            } else if (Array.isArray(block.content)) {
+              for (const nested of block.content) {
+                if (nested.type === "text" && typeof nested.text === "string") {
+                  nested.text = anonymizedTexts[idx++]!;
+                }
+              }
+            }
           }
         }
       }
@@ -137,6 +160,7 @@ export class AnthropicProvider implements LLMContentProvider {
 
   rebuildResponseBody(body: unknown, rehydratedTexts: string[]): unknown {
     const res = structuredClone(body) as AnthropicMessagesResponse;
+    if (!Array.isArray(res.content)) return res;
     let idx = 0;
 
     for (const block of res.content) {
@@ -183,6 +207,7 @@ export class AnthropicProvider implements LLMContentProvider {
 
   rebuildResponseToolCalls(body: unknown, rehydratedArgs: string[]): unknown {
     const res = structuredClone(body) as AnthropicMessagesResponse;
+    if (!Array.isArray(res.content)) return res;
     let idx = 0;
 
     for (const block of res.content) {
