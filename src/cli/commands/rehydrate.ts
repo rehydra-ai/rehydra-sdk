@@ -2,14 +2,13 @@ import {
   decryptPIIMap,
   base64ToUint8Array,
   rehydrate,
-  DEFAULT_TAG_FORMAT,
 } from "../../index.js";
 import type { RawPIIMap } from "../../pipeline/tagger.js";
-import type { TagFormat } from "../../types/index.js";
 import type { ParsedOptions } from "../main.js";
 import { CLIError } from "../utils/errors.js";
 import { readInput, writeOutput } from "../utils/io.js";
 import { loadPIIMapFile } from "../utils/pii-map-file.js";
+import { buildTagFormatFromOptions } from "../utils/tag-format.js";
 
 export async function rehydrateCommand(
   filePath: string | undefined,
@@ -41,13 +40,7 @@ export async function rehydrateCommand(
     );
   }
 
-  // Build tag format from CLI flags (if provided)
-  const tagFormat: TagFormat = {
-    open: options["tag-open"] ?? DEFAULT_TAG_FORMAT.open,
-    close: options["tag-close"] ?? DEFAULT_TAG_FORMAT.close,
-    keyword: options["tag-keyword"] ?? DEFAULT_TAG_FORMAT.keyword,
-  };
-
+  const tagFormat = buildTagFormatFromOptions(options);
   const output = rehydrate(input, rawPiiMap, false, tagFormat);
 
   // Ensure trailing newline

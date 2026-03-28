@@ -222,23 +222,28 @@ function checkTags(
 
   // Find anything that looks like a PII tag
   // Build pattern: OPEN KEYWORD ... CLOSE
+  // Use negated char class on close delimiter's first char to prevent matching across tags
+  const boundChar = escapeRegExp(tagFormat.close[0]!);
   const tagLikePattern = new RegExp(
-    `${escapedOpen}${keyword}[^]*?${escapedClose}`,
+    `${escapedOpen}${keyword}[^${boundChar}]*${escapedClose}`,
     "g"
   );
   let match: RegExpExecArray | null;
 
   while ((match = tagLikePattern.exec(anonymizedText)) !== null) {
     if (!isValidTag(match[0], tagFormat)) {
-      // For XML-style, also try appending close delimiter
-      const fullTag = match[0] + tagFormat.close;
-      if (!isValidTag(fullTag, tagFormat)) {
-        errors.push({
-          code: ValidationErrorCode.MALFORMED_TAG,
-          message: `Malformed PII tag at position ${match.index}`,
-          details: { tag: match[0], position: match.index },
-        });
+      // For XML-style "/>", the regex may capture up to ">" without the leading "/",
+      // so try appending the close delimiter to see if the tag is actually valid.
+      // This only applies to XML-style where open/close are asymmetric.
+      if (tagFormat.close === "/>") {
+        const fullTag = match[0] + tagFormat.close;
+        if (isValidTag(fullTag, tagFormat)) continue;
       }
+      errors.push({
+        code: ValidationErrorCode.MALFORMED_TAG,
+        message: `Malformed PII tag at position ${match.index}`,
+        details: { tag: match[0], position: match.index },
+      });
     }
   }
 
@@ -310,8 +315,9 @@ function performLeakScan(
 
   // Skip scanning inside PII tags
   const keyword = tagFormat.keyword ?? "PII";
+  const boundChar = escapeRegExp(tagFormat.close[0]!);
   const tagStripPattern = new RegExp(
-    `${escapeRegExp(tagFormat.open)}${keyword}[^]*?${escapeRegExp(tagFormat.close)}`,
+    `${escapeRegExp(tagFormat.open)}${keyword}[^${boundChar}]*${escapeRegExp(tagFormat.close)}`,
     "g"
   );
   const textWithoutTags = anonymizedText.replace(tagStripPattern, ' '.repeat(20));
@@ -354,13 +360,15 @@ function isPositionInsideTag(
 ): boolean {
   const open = tagFormat.open;
   const close = tagFormat.close;
+  const keyword = tagFormat.keyword ?? "PII";
+  const prefix = open + keyword;
 
-  // Find the nearest open delimiter before position
-  const before = text.lastIndexOf(open, position);
+  // Find the nearest tag-like open (open + keyword) before position
+  const before = text.lastIndexOf(prefix, position);
   if (before === -1) return false;
 
   // Find the nearest close delimiter after the open
-  const after = text.indexOf(close, before);
+  const after = text.indexOf(close, before + prefix.length);
   if (after === -1) return false;
 
   // Position is inside tag if it's between open and close

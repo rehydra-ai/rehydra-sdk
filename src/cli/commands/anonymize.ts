@@ -23,6 +23,7 @@ import { CLIError } from "../utils/errors.js";
 import { readInput, writeOutput, getInputStream, getOutputStream } from "../utils/io.js";
 import { formatText, formatJson, formatNdjson, formatStats } from "../utils/format.js";
 import { savePIIMapFile, type PIIMapFile } from "../utils/pii-map-file.js";
+import { buildTagFormatFromOptions } from "../utils/tag-format.js";
 
 function parseTypes(typesStr: string): Set<PIIType> {
   const allValues = new Set(Object.values(PIIType) as string[]);
@@ -164,6 +165,7 @@ async function anonymizeBatch(
   const config: AnonymizerConfig = {
     mode: anonMode,
     keyProvider,
+    tagFormat: buildTagFormatFromOptions(options),
   };
 
   const nerConfig = buildNerConfig(nerMode, options.quiet);
@@ -256,6 +258,7 @@ async function anonymizeFile(
   const anonymizerConfig: AnonymizerConfig = {
     mode: anonMode,
     keyProvider,
+    tagFormat: buildTagFormatFromOptions(options),
   };
 
   const nerConfig = buildNerConfig(nerMode, options.quiet);

@@ -315,6 +315,11 @@ export class Anonymizer {
     this.onValidationWarning = config.onValidationWarning ?? null;
     this.tagFormat = config.tagFormat ?? DEFAULT_TAG_FORMAT;
 
+    // Validate tag format fields
+    if (!this.tagFormat.open || !this.tagFormat.close) {
+      throw new Error("TagFormat: open and close delimiters must be non-empty strings");
+    }
+
     // Handle NER configuration
     this.nerConfig = config.ner ?? { mode: "disabled" };
     this.modelVersion = config.modelVersion ?? "1.0.0";

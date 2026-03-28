@@ -414,12 +414,25 @@ function buildIdCloseLeakPattern(tagFormat: TagFormat): string {
   if (close === "/>") {
     return `(?:\\/?(?:>|&gt;)?)?`;
   }
-  // For custom delimiters, allow the close delimiter chars to leak into the id value
-  const escaped = close
-    .split("")
-    .map((ch) => escapeRegExp(ch))
-    .join("");
-  return `(?:${escaped})?`;
+  // For custom delimiters, allow individual close-delimiter characters to
+  // partially leak into the id value (e.g., id="7]" for close="]]"),
+  // but not the full delimiter which would consume a valid closing.
+  if (close.length > 1) {
+    const partial = close
+      .slice(0, -1)
+      .split("")
+      .map((ch) => `${escapeRegExp(ch)}?`)
+      .join("");
+    return `(?:${partial})?`;
+  }
+  return "";
+}
+
+// Cache compiled fuzzy patterns keyed by "open\0close\0keyword"
+const fuzzyPatternCache = new Map<string, RegExp[]>();
+
+function fuzzyPatternCacheKey(tagFormat: TagFormat): string {
+  return `${tagFormat.open}\0${tagFormat.close}\0${tagFormat.keyword ?? "PII"}`;
 }
 
 /**
@@ -428,10 +441,15 @@ function buildIdCloseLeakPattern(tagFormat: TagFormat): string {
  *
  * For XML-style tags, also handles HTML-encoded brackets (&lt; / &gt;).
  * For custom formats, handles flexible whitespace within multi-character delimiters.
+ *
+ * Results are cached per unique TagFormat configuration.
  */
 function buildFuzzyTagPatterns(
   tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): RegExp[] {
+  const cacheKey = fuzzyPatternCacheKey(tagFormat);
+  const cached = fuzzyPatternCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const keyword = tagFormat.keyword ?? "PII";
   const openPattern = buildOpenBracketPattern(tagFormat);
   const closingPattern = buildClosingPattern(tagFormat);
@@ -449,7 +467,7 @@ function buildFuzzyTagPatterns(
 
   const escapedKeyword = escapeRegExp(keyword);
 
-  return [
+  const patterns = [
     // type first with optional gender/scope
     // Groups: type=1, gender=2, scope=3, id=4
     new RegExp(
@@ -463,6 +481,9 @@ function buildFuzzyTagPatterns(
       "gi"
     ),
   ];
+
+  fuzzyPatternCache.set(cacheKey, patterns);
+  return patterns;
 }
 
 /**

@@ -23,6 +23,7 @@ import type { ParsedOptions } from "../main.js";
 import { CLIError } from "../utils/errors.js";
 import { bold, dim, cyan, green, yellow } from "../utils/color.js";
 import { formatProgress, writeProgress, clearProgress } from "../utils/progress.js";
+import { buildTagFormatFromOptions } from "../utils/tag-format.js";
 
 const PROVIDER_UPSTREAMS: Record<string, string> = {
   openai: "https://api.openai.com",
@@ -153,6 +154,7 @@ export async function proxyCommand(
     piiStorageProvider: storage,
     anonymizer: {
       ...(options.secrets ? { secrets: { enabled: true } } : {}),
+      tagFormat: buildTagFormatFromOptions(options),
     },
     policy,
     locale: options.locale,
