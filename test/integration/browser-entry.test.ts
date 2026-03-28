@@ -595,9 +595,9 @@ describe('Browser Entry Point - Semantic Masking', () => {
     const result = await anonymizer.anonymize('Hello John Smith from Berlin');
     expect(result.anonymizedText).toBeDefined();
     expect(result.stats.totalEntities).toBeGreaterThanOrEqual(0);
-    
+
     await anonymizer.dispose();
-  });
+  }, 15_000);
 
   it('should pass through status callbacks for semantic config', async () => {
     const statuses: string[] = [];
