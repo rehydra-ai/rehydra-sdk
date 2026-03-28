@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.8.0...v0.9.0) (2026-03-28)
+
+
+### Features
+
+* configurable PII tag format ([#57](https://github.com/rehydra-ai/rehydra-sdk/issues/57)) ([3849d67](https://github.com/rehydra-ai/rehydra-sdk/commit/3849d67363380900b7a3823381f0a044fa415e42))
+
 ## [0.8.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.7.0...v0.8.0) (2026-03-27)
 
 
