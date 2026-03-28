@@ -13,6 +13,7 @@ import type { ParsedOptions } from "../main.js";
 import { CLIError } from "../utils/errors.js";
 import { readInput, writeOutput } from "../utils/io.js";
 import { formatInspect, formatStats } from "../utils/format.js";
+import { buildTagFormatFromOptions } from "../utils/tag-format.js";
 
 function parseTypes(typesStr: string): Set<PIIType> {
   const allValues = new Set(Object.values(PIIType) as string[]);
@@ -49,6 +50,7 @@ export async function inspectCommand(
   const config: AnonymizerConfig = {
     mode: "pseudonymize",
     keyProvider: new InMemoryKeyProvider(),
+    tagFormat: buildTagFormatFromOptions(options),
   };
 
   if (nerMode !== "disabled") {

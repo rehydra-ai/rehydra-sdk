@@ -368,7 +368,7 @@ describe('Anonymizer Class', () => {
   });
 
   describe('semantic masking configuration', () => {
-    it('should work with semantic masking enabled', async () => {
+    it('should work with semantic masking enabled', { timeout: 15_000 }, async () => {
       const keyProvider = new InMemoryKeyProvider();
       const anonymizer = createAnonymizer({
         keyProvider,

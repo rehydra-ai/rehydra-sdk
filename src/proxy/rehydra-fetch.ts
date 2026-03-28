@@ -13,7 +13,9 @@ import { SSEParser, isSSEDone, serializeSSEEvent } from "./sse-parser.js";
 import { detectProvider } from "./providers/index.js";
 import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js";
 import type { RehydraFetchConfig } from "./types.js";
-import { DEFAULT_PII_SYSTEM_INSTRUCTION } from "./system-instruction.js";
+import { buildPIISystemInstruction } from "./system-instruction.js";
+import { buildTagPrefix } from "../utils/regex.js";
+import { DEFAULT_TAG_FORMAT } from "../types/index.js";
 
 /** Headers to strip from proxied responses — the body is decompressed and may be modified. */
 const STRIP_RESPONSE_HEADERS = ["content-encoding", "content-length"];
@@ -80,6 +82,7 @@ export function createRehydraFetch(
     piiStorageProvider: config.piiStorageProvider,
   });
   let initialized = false;
+  const tagFormat = config.anonymizer?.tagFormat ?? DEFAULT_TAG_FORMAT;
 
   const getSessionId = config.getSessionId ?? defaultGetSessionId;
   const handleStreaming = config.handleStreaming !== false;
@@ -173,7 +176,7 @@ export function createRehydraFetch(
         const instruction =
           typeof config.systemInstruction === "string"
             ? config.systemInstruction
-            : DEFAULT_PII_SYSTEM_INSTRUCTION;
+            : buildPIISystemInstruction(tagFormat);
         anonymizedBody = provider.injectSystemInstruction(
           anonymizedBody,
           instruction,
@@ -486,6 +489,8 @@ function rehydrateSSEResponse(
   const sseParser = new SSEParser();
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  const tagFormat = config.anonymizer?.tagFormat ?? DEFAULT_TAG_FORMAT;
+  const tagPrefix = buildTagPrefix(tagFormat);
 
   // Buffer for incomplete PII tags that span SSE chunks (content)
   let tagBuffer = "";
@@ -547,8 +552,8 @@ function rehydrateSSEResponse(
         if (delta !== null) {
           handled = true;
           const fullText = tagBuffer + delta;
-          const incompleteTagIdx = fullText.lastIndexOf("<PII");
-          const lastCloseIdx = fullText.lastIndexOf("/>");
+          const incompleteTagIdx = fullText.lastIndexOf(tagPrefix);
+          const lastCloseIdx = fullText.lastIndexOf(tagFormat.close);
 
           let textToRehydrate: string;
           if (
@@ -564,7 +569,7 @@ function rehydrateSSEResponse(
 
           if (textToRehydrate.length > 0) {
             const piiMap = await getPiiMap();
-            const rehydrated = rehydrate(textToRehydrate, piiMap);
+            const rehydrated = rehydrate(textToRehydrate, piiMap, false, tagFormat);
             rebuiltData = provider.rebuildSSEDelta(rebuiltData, rehydrated);
           }
         }
@@ -584,8 +589,8 @@ function rehydrateSSEResponse(
               const existing = toolCallBuffers.get(td.index) ?? "";
               const fullText = existing + td.arguments;
 
-              const incompleteTagIdx = fullText.lastIndexOf("<PII");
-              const lastCloseIdx = fullText.lastIndexOf("/>");
+              const incompleteTagIdx = fullText.lastIndexOf(tagPrefix);
+              const lastCloseIdx = fullText.lastIndexOf(tagFormat.close);
 
               let textToRehydrate: string;
               if (
@@ -601,7 +606,7 @@ function rehydrateSSEResponse(
 
               if (textToRehydrate.length > 0) {
                 const piiMap = await getPiiMap();
-                const rehydrated = rehydrate(textToRehydrate, piiMap);
+                const rehydrated = rehydrate(textToRehydrate, piiMap, false, tagFormat);
                 rehydratedArgs.set(td.index, rehydrated);
               }
             }
@@ -639,7 +644,7 @@ function rehydrateSSEResponse(
             const buffer = toolCallBuffers.get(stopIndex) ?? "";
             if (buffer.length > 0) {
               const piiMap = await getPiiMap();
-              const rehydrated = rehydrate(buffer, piiMap);
+              const rehydrated = rehydrate(buffer, piiMap, false, tagFormat);
               if (rehydrated.length > 0) {
                 const last = toolCallLastEvent.get(stopIndex);
                 if (last !== undefined) {
@@ -678,7 +683,7 @@ function rehydrateSSEResponse(
 
       if (tagBuffer.length > 0) {
         const piiMap = await getPiiMap();
-        const rehydrated = rehydrate(tagBuffer, piiMap);
+        const rehydrated = rehydrate(tagBuffer, piiMap, false, tagFormat);
         if (rehydrated.length > 0) {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ content: rehydrated })}\n\n`),
@@ -694,7 +699,7 @@ function rehydrateSSEResponse(
         for (const [index, buffer] of toolCallBuffers) {
           if (buffer.length > 0) {
             const piiMap = await getPiiMap();
-            const rehydrated = rehydrate(buffer, piiMap);
+            const rehydrated = rehydrate(buffer, piiMap, false, tagFormat);
             if (rehydrated.length > 0) {
               const last = toolCallLastEvent.get(index);
               if (last !== undefined) {

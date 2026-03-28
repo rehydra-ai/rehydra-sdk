@@ -8,6 +8,7 @@ import type { ParsedOptions } from "../main.js";
 import { CLIError } from "../utils/errors.js";
 import { readInput, writeOutput } from "../utils/io.js";
 import { loadPIIMapFile } from "../utils/pii-map-file.js";
+import { buildTagFormatFromOptions } from "../utils/tag-format.js";
 
 export async function rehydrateCommand(
   filePath: string | undefined,
@@ -39,7 +40,8 @@ export async function rehydrateCommand(
     );
   }
 
-  const output = rehydrate(input, rawPiiMap);
+  const tagFormat = buildTagFormatFromOptions(options);
+  const output = rehydrate(input, rawPiiMap, false, tagFormat);
 
   // Ensure trailing newline
   const finalOutput = output.endsWith("\n") ? output : output + "\n";

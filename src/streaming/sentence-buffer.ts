@@ -290,11 +290,12 @@ export class SentenceBuffer {
       const originalSpanLength = entity.end - entity.start;
 
       // Find the tag in the anonymized text at this position
-      // Tags look like: <PII type="TYPE" id="N"/>
+      // Tags look like: <PII type="TYPE" id="N"/> (or custom format)
       const tagStart = anonymizedPos;
-      const tagEnd = anonymizedText.indexOf("/>", tagStart);
+      const closeDelimiter = this.anonymizer.resolvedTagFormat.close;
+      const tagEnd = anonymizedText.indexOf(closeDelimiter, tagStart);
       const tagLength =
-        tagEnd !== -1 ? tagEnd + 2 - tagStart : originalSpanLength;
+        tagEnd !== -1 ? tagEnd + closeDelimiter.length - tagStart : originalSpanLength;
 
       if (entity.end <= overlapLength) {
         // Entity is fully within the overlap — skip entirely

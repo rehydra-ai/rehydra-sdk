@@ -47,6 +47,34 @@ export interface SemanticAttributes {
   title?: string;
 }
 
+// ============================================================================
+// Tag Format Configuration
+// ============================================================================
+
+/**
+ * Configures the delimiter format used for PII placeholder tags.
+ *
+ * Default (XML-style): `<PII type="EMAIL" id="1"/>`
+ * Custom example:      `[[PII type="EMAIL" id="1"]]`
+ */
+export interface TagFormat {
+  /** Opening delimiter (e.g., "<" for XML, "[[" for bracket style) */
+  open: string;
+  /** Closing delimiter (e.g., "/>" for XML self-closing, "]]" for bracket style) */
+  close: string;
+  /** Tag keyword (default: "PII"). Allows e.g., "REDACTED" instead of "PII" */
+  keyword?: string;
+}
+
+/**
+ * Default XML-style tag format: `<PII type="..." id="N"/>`
+ */
+export const DEFAULT_TAG_FORMAT: TagFormat = {
+  open: "<",
+  close: "/>",
+  keyword: "PII",
+};
+
 /**
  * Progress callback for semantic data downloads
  */

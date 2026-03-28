@@ -15,12 +15,11 @@ import { createAnonymizer } from "../core/anonymizer.js";
 import { AnonymizerSessionImpl } from "../storage/session-base.js";
 import { InMemoryPIIStorageProvider } from "../storage/in-memory.js";
 import { InMemoryKeyProvider } from "../crypto/index.js";
-import { PIIType, createDefaultPolicy, SECRET_PII_TYPES } from "../types/index.js";
+import { PIIType, createDefaultPolicy, SECRET_PII_TYPES, DEFAULT_TAG_FORMAT } from "../types/index.js";
 import type { AnonymizationPolicy } from "../types/index.js";
 import type { PIITypeName, RehydraPluginOptions } from "./types.js";
-import { DEFAULT_PII_SYSTEM_INSTRUCTION } from "../proxy/system-instruction.js";
-
-const REHYDRA_INSTRUCTION = `<rehydra>\n${DEFAULT_PII_SYSTEM_INSTRUCTION}\n</rehydra>`;
+import { buildPIISystemInstruction } from "../proxy/system-instruction.js";
+import { buildTagPrefix } from "../utils/regex.js";
 
 /**
  * OpenCode Plugin types — matches signatures from @opencode-ai/plugin.
@@ -63,23 +62,24 @@ interface Hooks {
 async function deepRehydrate(
   value: unknown,
   session: AnonymizerSessionImpl,
+  tagPrefix: string,
 ): Promise<unknown> {
   if (typeof value === "string") {
-    if (value.includes("<PII")) {
+    if (value.includes(tagPrefix)) {
       return session.rehydrate(value);
     }
     return value;
   }
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
-      (value as unknown[])[i] = await deepRehydrate(value[i], session);
+      (value as unknown[])[i] = await deepRehydrate(value[i], session, tagPrefix);
     }
     return value as unknown;
   }
   if (value !== null && typeof value === "object") {
     const obj = value as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
-      obj[key] = await deepRehydrate(obj[key], session);
+      obj[key] = await deepRehydrate(obj[key], session, tagPrefix);
     }
     return obj;
   }
@@ -130,8 +130,13 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
       },
     };
 
+    const tagFormat = anonymizerConfig.tagFormat ?? options?.tagFormat ?? DEFAULT_TAG_FORMAT;
+    const tagPrefix = buildTagPrefix(tagFormat);
+    const rehydraInstruction = `<rehydra>\n${buildPIISystemInstruction(tagFormat)}\n</rehydra>`;
+
     const anonymizer = createAnonymizer({
       ...anonymizerConfig,
+      tagFormat,
       keyProvider,
       piiStorageProvider: piiStorage,
     });
@@ -278,7 +283,7 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
       ): void => {
         if (hasAnonymized) {
           log("debug", "injected rehydra instruction into system prompt");
-          output.system.push(REHYDRA_INSTRUCTION);
+          output.system.push(rehydraInstruction);
         }
       },
 
@@ -288,7 +293,7 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
       ): Promise<void> => {
         const session = getSession(input.sessionID);
         const before = JSON.stringify(output.args);
-        output.args = await deepRehydrate(output.args, session);
+        output.args = await deepRehydrate(output.args, session, tagPrefix);
         const after = JSON.stringify(output.args);
 
         if (before !== after) {
@@ -311,11 +316,11 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
         const session = getSession(input.sessionID);
         let rehydrated = false;
 
-        if (output.title.includes("<PII")) {
+        if (output.title.includes(tagPrefix)) {
           output.title = await session.rehydrate(output.title);
           rehydrated = true;
         }
-        if (output.output.includes("<PII")) {
+        if (output.output.includes(tagPrefix)) {
           output.output = await session.rehydrate(output.output);
           rehydrated = true;
         }
@@ -332,7 +337,7 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
         input: { sessionID: string; messageID: string; partID: string },
         output: { text: string },
       ): Promise<void> => {
-        if (output.text.includes("<PII")) {
+        if (output.text.includes(tagPrefix)) {
           const session = getSession(input.sessionID);
           output.text = await session.rehydrate(output.text);
           log("debug", "rehydrated PII tags in LLM response text", {

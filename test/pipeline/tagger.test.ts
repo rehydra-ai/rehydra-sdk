@@ -15,6 +15,8 @@ import {
   DetectionSource,
   createDefaultPolicy,
   SemanticAttributes,
+  TagFormat,
+  DEFAULT_TAG_FORMAT,
 } from "../../src/types/index.js";
 
 describe("Tagger", () => {
@@ -917,6 +919,283 @@ describe("Tagger", () => {
     it("should create correct key format", () => {
       expect(createPIIMapKey(PIIType.PERSON, 1)).toBe("PERSON_1");
       expect(createPIIMapKey(PIIType.EMAIL, 42)).toBe("EMAIL_42");
+    });
+  });
+
+  // =========================================================================
+  // Custom TagFormat tests
+  // =========================================================================
+  describe("custom TagFormat", () => {
+    const bracketFormat: TagFormat = { open: "[[", close: "]]", keyword: "PII" };
+    const redactedFormat: TagFormat = { open: "{{", close: "}}", keyword: "REDACTED" };
+
+    describe("generateTag with custom format", () => {
+      it("should use bracket-style delimiters", () => {
+        expect(generateTag(PIIType.EMAIL, 1, undefined, bracketFormat)).toBe(
+          '[[PII type="EMAIL" id="1"]]'
+        );
+      });
+
+      it("should use custom keyword", () => {
+        expect(generateTag(PIIType.PERSON, 3, undefined, redactedFormat)).toBe(
+          '{{REDACTED type="PERSON" id="3"}}'
+        );
+      });
+
+      it("should include semantic attributes with custom format", () => {
+        expect(
+          generateTag(PIIType.PERSON, 1, { gender: "female" }, bracketFormat)
+        ).toBe('[[PII type="PERSON" gender="female" id="1"]]');
+      });
+
+      it("should default to XML format when no tagFormat provided", () => {
+        expect(generateTag(PIIType.PERSON, 1)).toBe(
+          '<PII type="PERSON" id="1"/>'
+        );
+      });
+    });
+
+    describe("parseTag with custom format", () => {
+      it("should parse bracket-style tags", () => {
+        const result = parseTag('[[PII type="EMAIL" id="1"]]', bracketFormat);
+        expect(result).toEqual({ type: PIIType.EMAIL, id: 1 });
+      });
+
+      it("should parse tags with custom keyword", () => {
+        const result = parseTag(
+          '{{REDACTED type="PERSON" id="5"}}',
+          redactedFormat
+        );
+        expect(result).toEqual({ type: PIIType.PERSON, id: 5 });
+      });
+
+      it("should parse bracket-style tags with semantic attributes", () => {
+        const result = parseTag(
+          '[[PII type="PERSON" gender="male" id="2"]]',
+          bracketFormat
+        );
+        expect(result).toEqual({
+          type: PIIType.PERSON,
+          id: 2,
+          semantic: { gender: "male" },
+        });
+      });
+
+      it("should reject default-format tags when custom format is configured", () => {
+        expect(
+          parseTag('<PII type="EMAIL" id="1"/>', bracketFormat)
+        ).toBeNull();
+      });
+
+      it("should reject custom-format tags when default format is expected", () => {
+        expect(
+          parseTag('[[PII type="EMAIL" id="1"]]', DEFAULT_TAG_FORMAT)
+        ).toBeNull();
+      });
+    });
+
+    describe("extractTags with custom format", () => {
+      it("should extract bracket-style tags", () => {
+        const text = 'Contact [[PII type="EMAIL" id="1"]] about [[PII type="PERSON" id="2"]]';
+        const tags = extractTags(text, bracketFormat);
+        expect(tags).toHaveLength(2);
+        expect(tags[0]).toMatchObject({ type: PIIType.EMAIL, id: 1 });
+        expect(tags[1]).toMatchObject({ type: PIIType.PERSON, id: 2 });
+      });
+
+      it("should extract tags with custom keyword", () => {
+        const text = 'Hello {{REDACTED type="PERSON" id="1"}}';
+        const tags = extractTags(text, redactedFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+
+      it("should handle fuzzy whitespace in bracket delimiters", () => {
+        const text = 'Hello [[ PII type="PERSON" id="1" ]]';
+        const tags = extractTags(text, bracketFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+
+      it("should handle smart quotes in custom format", () => {
+        const text = 'Hello [[PII type=\u201CPERSON\u201D id=\u201C1\u201D]]';
+        const tags = extractTags(text, bracketFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+    });
+
+    describe("extractTagsStrict with custom format", () => {
+      it("should extract bracket-style tags in strict mode", () => {
+        const text = 'Hello [[PII type="PERSON" id="1"]]';
+        const tags = extractTagsStrict(text, bracketFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 1 });
+      });
+
+      it("should not extract mangled tags in strict mode", () => {
+        const text = 'Hello [[ PII type="PERSON" id="1" ]]';
+        const tags = extractTagsStrict(text, bracketFormat);
+        expect(tags).toHaveLength(0);
+      });
+    });
+
+    describe("tagEntities with custom format", () => {
+      it("should produce bracket-style tagged output", () => {
+        const text = "Contact john@example.com";
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.EMAIL,
+            text: "john@example.com",
+            start: 8,
+            end: 24,
+            confidence: 1.0,
+            source: DetectionSource.REGEX,
+          },
+        ];
+        const result = tagEntities(
+          text,
+          matches,
+          defaultPolicy,
+          undefined,
+          bracketFormat
+        );
+        expect(result.anonymizedText).toBe(
+          'Contact [[PII type="EMAIL" id="1"]]'
+        );
+        expect(result.piiMap.get("EMAIL_1")).toBe("john@example.com");
+      });
+    });
+
+    describe("rehydrate with custom format", () => {
+      it("should rehydrate bracket-style tags", () => {
+        const anonymized = 'Contact [[PII type="EMAIL" id="1"]]';
+        const piiMap: RawPIIMap = new Map([["EMAIL_1", "john@example.com"]]);
+        const result = rehydrate(anonymized, piiMap, false, bracketFormat);
+        expect(result).toBe("Contact john@example.com");
+      });
+
+      it("should rehydrate tags with custom keyword", () => {
+        const anonymized = 'Hello {{REDACTED type="PERSON" id="1"}}';
+        const piiMap: RawPIIMap = new Map([["PERSON_1", "John"]]);
+        const result = rehydrate(anonymized, piiMap, false, redactedFormat);
+        expect(result).toBe("Hello John");
+      });
+
+      it("should rehydrate multiple tags", () => {
+        const anonymized =
+          '[[PII type="PERSON" id="1"]] emailed [[PII type="EMAIL" id="2"]]';
+        const piiMap: RawPIIMap = new Map([
+          ["PERSON_1", "Alice"],
+          ["EMAIL_2", "alice@example.com"],
+        ]);
+        const result = rehydrate(anonymized, piiMap, false, bracketFormat);
+        expect(result).toBe("Alice emailed alice@example.com");
+      });
+
+      it("should rehydrate fuzzy bracket-style tags", () => {
+        const anonymized = 'Hello [[ PII type="PERSON" id="1" ]]';
+        const piiMap: RawPIIMap = new Map([["PERSON_1", "John"]]);
+        const result = rehydrate(anonymized, piiMap, false, bracketFormat);
+        expect(result).toBe("Hello John");
+      });
+
+      it("should rehydrate strict bracket-style tags", () => {
+        const anonymized = 'Hello [[PII type="PERSON" id="1"]]';
+        const piiMap: RawPIIMap = new Map([["PERSON_1", "John"]]);
+        const result = rehydrate(anonymized, piiMap, true, bracketFormat);
+        expect(result).toBe("Hello John");
+      });
+    });
+
+    describe("end-to-end: tagEntities + rehydrate roundtrip", () => {
+      it("should roundtrip with bracket format", () => {
+        const original = "Email john@example.com and call +491234567890";
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.EMAIL,
+            text: "john@example.com",
+            start: 6,
+            end: 22,
+            confidence: 1.0,
+            source: DetectionSource.REGEX,
+          },
+          {
+            type: PIIType.PHONE,
+            text: "+491234567890",
+            start: 32,
+            end: 45,
+            confidence: 1.0,
+            source: DetectionSource.REGEX,
+          },
+        ];
+
+        const tagged = tagEntities(
+          original,
+          matches,
+          defaultPolicy,
+          undefined,
+          bracketFormat
+        );
+        expect(tagged.anonymizedText).toContain("[[PII");
+        expect(tagged.anonymizedText).not.toContain("<PII");
+
+        const restored = rehydrate(
+          tagged.anonymizedText,
+          tagged.piiMap,
+          false,
+          bracketFormat
+        );
+        expect(restored).toBe(original);
+      });
+    });
+
+    describe("keyword with regex-special characters", () => {
+      const dotFormat: TagFormat = { open: "[[", close: "]]", keyword: "P.I.I" };
+
+      it("parseTag should not treat dots as wildcards", () => {
+        const valid = '[[P.I.I type="EMAIL" id="1"]]';
+        expect(parseTag(valid, dotFormat)).toEqual({ type: PIIType.EMAIL, id: 1 });
+
+        const fake = '[[PXIXI type="EMAIL" id="1"]]';
+        expect(parseTag(fake, dotFormat)).toBeNull();
+      });
+
+      it("extractTagsStrict should not treat dots as wildcards", () => {
+        const text = '[[PXIXI type="EMAIL" id="1"]] and [[P.I.I type="PERSON" id="2"]]';
+        const tags = extractTagsStrict(text, dotFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 2 });
+      });
+
+      it("extractTags (fuzzy) should not treat dots as wildcards", () => {
+        const text = '[[PXIXI type="EMAIL" id="1"]] real [[P.I.I type="PERSON" id="2"]]';
+        const tags = extractTags(text, dotFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 2 });
+      });
+    });
+
+    describe("delimiters with regex-special characters", () => {
+      const regexFormat: TagFormat = { open: "($", close: "$)", keyword: "PII" };
+
+      it("should roundtrip tagEntities + rehydrate", () => {
+        const original = "Contact john@example.com";
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.EMAIL,
+            text: "john@example.com",
+            start: 8,
+            end: 24,
+            confidence: 1,
+            source: DetectionSource.REGEX,
+          },
+        ];
+        const tagged = tagEntities(original, matches, defaultPolicy, undefined, regexFormat);
+        expect(tagged.anonymizedText).toBe('Contact ($PII type="EMAIL" id="1"$)');
+        const restored = rehydrate(tagged.anonymizedText, tagged.piiMap, false, regexFormat);
+        expect(restored).toBe(original);
+      });
     });
   });
 });

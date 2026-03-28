@@ -13,6 +13,8 @@ import {
   SecretsConfig,
   SpanMatch,
   PIIType,
+  TagFormat,
+  DEFAULT_TAG_FORMAT,
   createDefaultPolicy,
   SECRET_PII_TYPES,
 } from "../types/index.js";
@@ -260,6 +262,14 @@ export interface AnonymizerConfig {
    * in TUI-based editors (e.g. OpenCode).
    */
   onValidationWarning?: (warnings: Array<{ code: string; message: string }>) => void;
+
+  /**
+   * Tag format configuration for PII placeholder tags.
+   * Controls the delimiters and keyword used in tags.
+   * @default { open: "<", close: "/>", keyword: "PII" } (XML-style)
+   * @example { open: "[[", close: "]]" } for bracket-style tags
+   */
+  tagFormat?: TagFormat;
 }
 
 /**
@@ -292,6 +302,7 @@ export class Anonymizer {
   private semanticDataReady = false;
   private sessionFactory: SessionFactory | null;
   private onValidationWarning: ((warnings: Array<{ code: string; message: string }>) => void) | null;
+  private tagFormat: TagFormat;
 
   constructor(config: AnonymizerConfig = {}, sessionFactory?: SessionFactory) {
     this.registry = config.registry ?? createDefaultRegistry();
@@ -302,6 +313,12 @@ export class Anonymizer {
     this.policyVersion = config.policyVersion ?? "1.0.0";
     this.sessionFactory = sessionFactory ?? null;
     this.onValidationWarning = config.onValidationWarning ?? null;
+    this.tagFormat = config.tagFormat ?? DEFAULT_TAG_FORMAT;
+
+    // Validate tag format fields
+    if (!this.tagFormat.open || !this.tagFormat.close) {
+      throw new Error("TagFormat: open and close delimiters must be non-empty strings");
+    }
 
     // Handle NER configuration
     this.nerConfig = config.ner ?? { mode: "disabled" };
@@ -359,6 +376,13 @@ export class Anonymizer {
         this.registry.register(recognizer);
       }
     }
+  }
+
+  /**
+   * Returns the resolved tag format configuration
+   */
+  get resolvedTagFormat(): TagFormat {
+    return this.tagFormat;
   }
 
   /**
@@ -594,7 +618,8 @@ export class Anonymizer {
       normalizedText,
       enrichedMatches,
       effectivePolicy,
-      existingPiiMap
+      existingPiiMap,
+      this.tagFormat
     );
 
     // Step 6: Validate output
@@ -602,7 +627,8 @@ export class Anonymizer {
       anonymizedText,
       entities,
       Array.from(piiMap.keys()),
-      effectivePolicy
+      effectivePolicy,
+      this.tagFormat
     );
 
     if (!validation.valid && this.onValidationWarning) {

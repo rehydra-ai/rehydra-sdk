@@ -7,6 +7,7 @@
 import type {
   AnonymizationResult,
   AnonymizationPolicy,
+  TagFormat,
 } from "../types/index.js";
 import { walkJson } from "../utils/json-walk.js";
 import type { KeyProvider } from "../crypto/index.js";
@@ -29,6 +30,7 @@ export interface IAnonymizer {
     policy?: Partial<AnonymizationPolicy>,
     existingPiiMap?: RawPIIMap
   ): Promise<AnonymizationResult>;
+  readonly resolvedTagFormat: TagFormat;
 }
 
 /**
@@ -152,7 +154,7 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     const piiMap = await decryptPIIMap(stored.piiMap, key);
 
     // Rehydrate the text
-    return rehydrateText(text, piiMap);
+    return rehydrateText(text, piiMap, false, this.anonymizer.resolvedTagFormat);
   }
 
   async anonymizeJson<T>(

@@ -9,8 +9,11 @@ import {
   DetectedEntity,
   AnonymizationPolicy,
   SemanticAttributes,
+  TagFormat,
+  DEFAULT_TAG_FORMAT,
 } from "../types/index.js";
 import { sortSpansByPosition } from "../utils/offsets.js";
+import { escapeRegExp } from "../utils/regex.js";
 
 /**
  * PII Map entry (before encryption)
@@ -43,15 +46,19 @@ export interface TaggingResult {
 
 /**
  * Generates a PII placeholder tag
- * Format: <PII type="TYPE" id="N"/> or <PII type="TYPE" gender="X" id="N"/> etc.
+ * Format depends on TagFormat configuration:
+ * - Default: <PII type="TYPE" id="N"/>
+ * - Custom:  [[PII type="TYPE" id="N"]]
  *
  * Semantic attributes (gender, scope) are included when provided and not 'unknown'
  */
 export function generateTag(
   type: PIIType,
   id: number,
-  semantic?: SemanticAttributes
+  semantic?: SemanticAttributes,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): string {
+  const keyword = tagFormat.keyword ?? "PII";
   let attrs = `type="${type}"`;
 
   // Add semantic attributes if present and meaningful
@@ -64,7 +71,7 @@ export function generateTag(
 
   attrs += ` id="${id}"`;
 
-  return `<PII ${attrs}/>`;
+  return `${tagFormat.open}${keyword} ${attrs}${tagFormat.close}`;
 }
 
 /**
@@ -80,16 +87,24 @@ export interface ParsedTag {
  * Parses a PII tag to extract type, id, and semantic attributes
  * Returns null if not a valid tag
  *
- * Supports formats:
- * - <PII type="TYPE" id="N"/>
- * - <PII type="TYPE" gender="X" id="N"/>
- * - <PII type="TYPE" scope="X" id="N"/>
- * - <PII type="TYPE" gender="X" scope="Y" id="N"/>
+ * Supports formats (with configurable delimiters):
+ * - <PII type="TYPE" id="N"/>       (default)
+ * - [[PII type="TYPE" id="N"]]      (custom)
+ * - Plus optional gender/scope attributes
  */
-export function parseTag(tag: string): ParsedTag | null {
-  // More flexible regex that handles optional gender/scope attributes
+export function parseTag(
+  tag: string,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): ParsedTag | null {
+  const keyword = tagFormat.keyword ?? "PII";
+  const open = escapeRegExp(tagFormat.open);
+  const close = escapeRegExp(tagFormat.close);
+
+  // Build regex dynamically from tag format
   const match = tag.match(
-    /^<PII\s+type="([A-Z_]+)"(?:\s+gender="(\w+)")?(?:\s+scope="(\w+)")?\s+id="(\d+)"\s*\/>$/
+    new RegExp(
+      `^${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}$`
+    )
   );
 
   if (match === null) {
@@ -195,12 +210,14 @@ function buildExistingEntityLookup(existingPiiMap: RawPIIMap): {
  * @param matches - Detected PII spans
  * @param policy - Anonymization policy
  * @param existingPiiMap - Optional existing PII map for session-level ID reuse
+ * @param tagFormat - Tag format configuration (defaults to XML-style)
  */
 export function tagEntities(
   text: string,
   matches: SpanMatch[],
   policy: AnonymizationPolicy,
-  existingPiiMap?: RawPIIMap
+  existingPiiMap?: RawPIIMap,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): TaggingResult {
   if (matches.length === 0) {
     return {
@@ -269,7 +286,7 @@ export function tagEntities(
   // Perform replacements
   let anonymizedText = text;
   for (const entity of sortedDescending) {
-    const tag = generateTag(entity.type, entity.id, entity.semantic);
+    const tag = generateTag(entity.type, entity.id, entity.semantic, tagFormat);
     anonymizedText =
       anonymizedText.slice(0, entity.start) +
       tag +
@@ -298,8 +315,11 @@ export function tagEntities(
 /**
  * Validates that a tag is well-formed
  */
-export function isValidTag(tag: string): boolean {
-  return parseTag(tag) !== null;
+export function isValidTag(
+  tag: string,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): boolean {
+  return parseTag(tag, tagFormat) !== null;
 }
 
 /**
@@ -341,52 +361,129 @@ const FLEXIBLE_WS = `[\\s\\u00A0\\u2000-\\u200B]*`;
 const FLEXIBLE_WS_REQUIRED = `[\\s\\u00A0\\u2000-\\u200B]+`;
 
 /**
- * HTML-encoded bracket patterns
- * Matches both literal brackets and HTML entity encoded versions
- * - Opening: < or &lt;
- * - Closing: > or &gt;
+ * Builds the opening bracket pattern for fuzzy matching.
+ * For XML-style delimiters, also matches HTML-encoded variants (&lt; / &gt;).
+ * For custom delimiters, matches the literal (escaped) delimiter with flexible internal whitespace.
  */
-const OPEN_BRACKET = `(?:<|&lt;)`;
-const CLOSE_BRACKET = `(?:>|&gt;)`;
+function buildOpenBracketPattern(tagFormat: TagFormat): string {
+  const open = tagFormat.open;
+  if (open === "<") {
+    return `(?:<|&lt;)`;
+  }
+  // For multi-character delimiters, allow flexible whitespace between characters
+  // e.g., "[[" → "\[[\s]*\["
+  if (open.length > 1) {
+    return open
+      .split("")
+      .map((ch) => escapeRegExp(ch))
+      .join(FLEXIBLE_WS);
+  }
+  return escapeRegExp(open);
+}
+
+/**
+ * Builds the closing bracket/self-closing pattern for fuzzy matching.
+ * For XML-style "/>", handles various mangled forms (/>, / >, >, etc.).
+ * For custom delimiters, matches the literal delimiter with flexible internal whitespace.
+ */
+function buildClosingPattern(tagFormat: TagFormat): string {
+  const close = tagFormat.close;
+  if (close === "/>") {
+    // XML self-closing: />, / >, >, /&gt;, &gt;, or nothing if already closed inside quotes
+    const CLOSE_BRACKET = `(?:>|&gt;)`;
+    return `(?:${FLEXIBLE_WS}(?:\\/(?:${FLEXIBLE_WS}${CLOSE_BRACKET})?|${CLOSE_BRACKET}))?`;
+  }
+  // For custom close delimiters, allow flexible whitespace between characters
+  if (close.length > 1) {
+    const pattern = close
+      .split("")
+      .map((ch) => escapeRegExp(ch))
+      .join(FLEXIBLE_WS);
+    return `${FLEXIBLE_WS}${pattern}`;
+  }
+  return `${FLEXIBLE_WS}${escapeRegExp(close)}`;
+}
+
+/**
+ * Builds the malformed id-close pattern for fuzzy matching.
+ * For XML-style tags, handles cases where /> got placed inside the id quotes (e.g., id="7/>").
+ * For custom formats, handles the close delimiter leaking into the id value.
+ */
+function buildIdCloseLeakPattern(tagFormat: TagFormat): string {
+  const close = tagFormat.close;
+  if (close === "/>") {
+    return `(?:\\/?(?:>|&gt;)?)?`;
+  }
+  // For custom delimiters, allow individual close-delimiter characters to
+  // partially leak into the id value (e.g., id="7]" for close="]]"),
+  // but not the full delimiter which would consume a valid closing.
+  if (close.length > 1) {
+    const partial = close
+      .slice(0, -1)
+      .split("")
+      .map((ch) => `${escapeRegExp(ch)}?`)
+      .join("");
+    return `(?:${partial})?`;
+  }
+  return "";
+}
+
+// Cache compiled fuzzy patterns keyed by "open\0close\0keyword"
+const fuzzyPatternCache = new Map<string, RegExp[]>();
+
+function fuzzyPatternCacheKey(tagFormat: TagFormat): string {
+  return `${tagFormat.open}\0${tagFormat.close}\0${tagFormat.keyword ?? "PII"}`;
+}
 
 /**
  * Builds patterns for fuzzy PII tag matching
  * Handles various translation artifacts and optional semantic attributes
  *
- * Now also handles HTML-encoded tags where < becomes &lt; and > becomes &gt;
- * This commonly happens when LLMs (like ChatGPT) HTML-encode their responses
+ * For XML-style tags, also handles HTML-encoded brackets (&lt; / &gt;).
+ * For custom formats, handles flexible whitespace within multi-character delimiters.
+ *
+ * Results are cached per unique TagFormat configuration.
  */
-function buildFuzzyTagPatterns(): RegExp[] {
+function buildFuzzyTagPatterns(
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): RegExp[] {
+  const cacheKey = fuzzyPatternCacheKey(tagFormat);
+  const cached = fuzzyPatternCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const keyword = tagFormat.keyword ?? "PII";
+  const openPattern = buildOpenBracketPattern(tagFormat);
+  const closingPattern = buildClosingPattern(tagFormat);
+  const idCloseLeak = buildIdCloseLeakPattern(tagFormat);
+
   // Pattern for type attribute: type = "VALUE" (flexible spacing and quotes)
   const typeAttr = `type${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}([A-Z_]+)${QUOTE_CHARS}`;
   // Pattern for id attribute: id = "VALUE" (flexible spacing and quotes)
-  // Also handles malformed cases where /> or /&gt; got placed inside the quotes (e.g., id="7/>")
-  const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\d+)(?:\\/?(?:>|&gt;)?)?${QUOTE_CHARS}`;
+  // Also handles malformed cases where close delimiter got placed inside the quotes
+  const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\d+)${idCloseLeak}${QUOTE_CHARS}`;
   // Optional gender attribute
   const genderAttr = `(?:${FLEXIBLE_WS}gender${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
   // Optional scope attribute
   const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
 
-  // Self-closing tag endings: />, / >, >, /&gt;, &gt;, or nothing if already closed inside quotes
-  // Only consume whitespace if followed by / or closing bracket (prevents greedy matching of trailing space)
-  const selfClosing = `(?:${FLEXIBLE_WS}(?:\\/(?:${FLEXIBLE_WS}${CLOSE_BRACKET})?|${CLOSE_BRACKET}))?`;
+  const escapedKeyword = escapeRegExp(keyword);
 
-  return [
-    // type first with optional gender/scope: <PII type="X" gender="Y" scope="Z" id="N"/>
-    // Also matches: &lt;PII type="X" gender="Y" scope="Z" id="N"/&gt;
+  const patterns = [
+    // type first with optional gender/scope
     // Groups: type=1, gender=2, scope=3, id=4
     new RegExp(
-      `${OPEN_BRACKET}${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${typeAttr}${genderAttr}${scopeAttr}${FLEXIBLE_WS_REQUIRED}${idAttr}${selfClosing}`,
+      `${openPattern}${FLEXIBLE_WS}${escapedKeyword}${FLEXIBLE_WS_REQUIRED}${typeAttr}${genderAttr}${scopeAttr}${FLEXIBLE_WS_REQUIRED}${idAttr}${closingPattern}`,
       "gi"
     ),
-    // id first: <PII id="N" type="X"/>
-    // Also matches: &lt;PII id="N" type="X"/&gt;
+    // id first
     // Groups: id=1, type=2
     new RegExp(
-      `${OPEN_BRACKET}${FLEXIBLE_WS}PII${FLEXIBLE_WS_REQUIRED}${idAttr}${FLEXIBLE_WS_REQUIRED}${typeAttr}${selfClosing}`,
+      `${openPattern}${FLEXIBLE_WS}${escapedKeyword}${FLEXIBLE_WS_REQUIRED}${idAttr}${FLEXIBLE_WS_REQUIRED}${typeAttr}${closingPattern}`,
       "gi"
     ),
   ];
+
+  fuzzyPatternCache.set(cacheKey, patterns);
+  return patterns;
 }
 
 /**
@@ -400,9 +497,12 @@ function buildFuzzyTagPatterns(): RegExp[] {
  * - Reordering attributes (id before type)
  * - Modifying self-closing syntax (/> → / > or >)
  */
-export function extractTags(anonymizedText: string): ExtractedTag[] {
+export function extractTags(
+  anonymizedText: string,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): ExtractedTag[] {
   const tags: ExtractedTag[] = [];
-  const patterns = buildFuzzyTagPatterns();
+  const patterns = buildFuzzyTagPatterns(tagFormat);
 
   // Track positions we've already matched to avoid duplicates from overlapping patterns
   const matchedPositions = new Set<number>();
@@ -496,11 +596,19 @@ export function extractTags(anonymizedText: string): ExtractedTag[] {
  * Useful when you know tags haven't been mangled
  * Supports optional gender and scope attributes
  */
-export function extractTagsStrict(anonymizedText: string): ExtractedTag[] {
+export function extractTagsStrict(
+  anonymizedText: string,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
+): ExtractedTag[] {
   const tags: ExtractedTag[] = [];
-  // Pattern matches: <PII type="X" [gender="Y"] [scope="Z"] id="N"/>
-  const tagPattern =
-    /<PII\s+type="([A-Z_]+)"(?:\s+gender="(\w+)")?(?:\s+scope="(\w+)")?\s+id="(\d+)"\s*\/>/g;
+  const keyword = tagFormat.keyword ?? "PII";
+  const open = escapeRegExp(tagFormat.open);
+  const close = escapeRegExp(tagFormat.close);
+  // Pattern matches: OPEN KEYWORD type="X" [gender="Y"] [scope="Z"] id="N" CLOSE
+  const tagPattern = new RegExp(
+    `${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}`,
+    "g"
+  );
 
   let match: RegExpExecArray | null;
   while ((match = tagPattern.exec(anonymizedText)) !== null) {
@@ -579,17 +687,19 @@ export function countEntitiesByType(
  * @param anonymizedText - Text containing PII tags (possibly mangled)
  * @param piiMap - Map of PII keys to original values
  * @param strict - If true, use strict matching (original behavior). Default: false
+ * @param tagFormat - Tag format configuration (defaults to XML-style)
  * @returns Text with PII tags replaced by original values
  */
 export function rehydrate(
   anonymizedText: string,
   piiMap: RawPIIMap,
-  strict: boolean = false
+  strict: boolean = false,
+  tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): string {
   let result = anonymizedText;
   const tags = strict
-    ? extractTagsStrict(anonymizedText)
-    : extractTags(anonymizedText);
+    ? extractTagsStrict(anonymizedText, tagFormat)
+    : extractTags(anonymizedText, tagFormat);
 
   // Sort by position descending for replacement
   // (replacing from end to start preserves earlier offsets)

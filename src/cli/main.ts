@@ -26,6 +26,9 @@ export interface ParsedOptions {
   port?: string;
   upstream?: string;
   "api-key"?: string;
+  "tag-open"?: string;
+  "tag-close"?: string;
+  "tag-keyword"?: string;
 }
 
 const HELP_TEXT = `
@@ -55,6 +58,9 @@ ${bold("OPTIONS")}
   -p, --port <port>        Proxy port (default: 8787)
       --upstream <url>     Custom upstream URL (overrides provider default)
       --api-key <key>      LLM API key (or set LLM_API_KEY env var)
+      --tag-open <str>     Tag open delimiter (default: "<")
+      --tag-close <str>    Tag close delimiter (default: "/>")
+      --tag-keyword <str>  Tag keyword (default: "PII")
       --no-color           Disable colored output
       --verbose            Show detection details
   -q, --quiet              Suppress non-essential output
@@ -108,6 +114,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
         port: { type: "string", short: "p" },
         upstream: { type: "string" },
         "api-key": { type: "string" },
+        "tag-open": { type: "string" },
+        "tag-close": { type: "string" },
+        "tag-keyword": { type: "string" },
         "no-color": { type: "boolean", default: false },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", short: "q", default: false },
@@ -164,6 +173,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
     port: values["port"] as string | undefined,
     upstream: values["upstream"] as string | undefined,
     "api-key": values["api-key"] as string | undefined,
+    "tag-open": values["tag-open"] as string | undefined,
+    "tag-close": values["tag-close"] as string | undefined,
+    "tag-keyword": values["tag-keyword"] as string | undefined,
   };
 
   switch (command) {
