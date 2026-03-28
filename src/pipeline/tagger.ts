@@ -103,7 +103,7 @@ export function parseTag(
   // Build regex dynamically from tag format
   const match = tag.match(
     new RegExp(
-      `^${open}${keyword}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}$`
+      `^${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}$`
     )
   );
 
@@ -606,7 +606,7 @@ export function extractTagsStrict(
   const close = escapeRegExp(tagFormat.close);
   // Pattern matches: OPEN KEYWORD type="X" [gender="Y"] [scope="Z"] id="N" CLOSE
   const tagPattern = new RegExp(
-    `${open}${keyword}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}`,
+    `${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}`,
     "g"
   );
 

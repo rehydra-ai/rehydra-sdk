@@ -224,8 +224,9 @@ function checkTags(
   // Build pattern: OPEN KEYWORD ... CLOSE
   // Use negated char class on close delimiter's first char to prevent matching across tags
   const boundChar = escapeRegExp(tagFormat.close[0]!);
+  const escapedKeyword = escapeRegExp(keyword);
   const tagLikePattern = new RegExp(
-    `${escapedOpen}${keyword}[^${boundChar}]*${escapedClose}`,
+    `${escapedOpen}${escapedKeyword}[^${boundChar}]*${escapedClose}`,
     "g"
   );
   let match: RegExpExecArray | null;
@@ -317,7 +318,7 @@ function performLeakScan(
   const keyword = tagFormat.keyword ?? "PII";
   const boundChar = escapeRegExp(tagFormat.close[0]!);
   const tagStripPattern = new RegExp(
-    `${escapeRegExp(tagFormat.open)}${keyword}[^${boundChar}]*${escapeRegExp(tagFormat.close)}`,
+    `${escapeRegExp(tagFormat.open)}${escapeRegExp(keyword)}[^${boundChar}]*${escapeRegExp(tagFormat.close)}`,
     "g"
   );
   const textWithoutTags = anonymizedText.replace(tagStripPattern, ' '.repeat(20));

@@ -1149,5 +1149,53 @@ describe("Tagger", () => {
         expect(restored).toBe(original);
       });
     });
+
+    describe("keyword with regex-special characters", () => {
+      const dotFormat: TagFormat = { open: "[[", close: "]]", keyword: "P.I.I" };
+
+      it("parseTag should not treat dots as wildcards", () => {
+        const valid = '[[P.I.I type="EMAIL" id="1"]]';
+        expect(parseTag(valid, dotFormat)).toEqual({ type: PIIType.EMAIL, id: 1 });
+
+        const fake = '[[PXIXI type="EMAIL" id="1"]]';
+        expect(parseTag(fake, dotFormat)).toBeNull();
+      });
+
+      it("extractTagsStrict should not treat dots as wildcards", () => {
+        const text = '[[PXIXI type="EMAIL" id="1"]] and [[P.I.I type="PERSON" id="2"]]';
+        const tags = extractTagsStrict(text, dotFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 2 });
+      });
+
+      it("extractTags (fuzzy) should not treat dots as wildcards", () => {
+        const text = '[[PXIXI type="EMAIL" id="1"]] real [[P.I.I type="PERSON" id="2"]]';
+        const tags = extractTags(text, dotFormat);
+        expect(tags).toHaveLength(1);
+        expect(tags[0]).toMatchObject({ type: PIIType.PERSON, id: 2 });
+      });
+    });
+
+    describe("delimiters with regex-special characters", () => {
+      const regexFormat: TagFormat = { open: "($", close: "$)", keyword: "PII" };
+
+      it("should roundtrip tagEntities + rehydrate", () => {
+        const original = "Contact john@example.com";
+        const matches: SpanMatch[] = [
+          {
+            type: PIIType.EMAIL,
+            text: "john@example.com",
+            start: 8,
+            end: 24,
+            confidence: 1,
+            source: DetectionSource.REGEX,
+          },
+        ];
+        const tagged = tagEntities(original, matches, defaultPolicy, undefined, regexFormat);
+        expect(tagged.anonymizedText).toBe('Contact ($PII type="EMAIL" id="1"$)');
+        const restored = rehydrate(tagged.anonymizedText, tagged.piiMap, false, regexFormat);
+        expect(restored).toBe(original);
+      });
+    });
   });
 });
