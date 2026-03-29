@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  On-device PII anonymization for AI workflows.<br/>
-  Detects, replaces, encrypts — and rehydrates back when needed.
+  PII security for AI workflows, coding agents and browser workloads.<br/>
+  Detects, replaces, encrypts, and <strong>rehydrates</strong> back when needed.
 </p>
 
 <p align="center">
@@ -21,11 +21,18 @@
   <code>npm i rehydra</code> · <code>npm i <a href="packages/cli/">@rehydra/cli</a></code> · <code>npm i <a href="packages/opencode-plugin/">@rehydra/opencode</a></code>
 </p>
 
----
+## The Problem
 
-<p align="center">
-  <img src="demo.gif" alt="Rehydra Demo" />
-</p>   
+When you send code, messages, or documents through an LLM, real names, emails, and API keys go with them. Existing anonymizers strip PII permanently but that breaks the conversation. The LLM can't reason about "John" if it never sees "John," and it can't write a file referencing `john@acme.com` if that address was permanently removed.
+
+You need pseudonyms that the LLM can work with, and that your tools can reverse.
+
+## How Rehydra Solves It
+
+1. **Detect** — Regex patterns catch structured PII (emails, phones, IBANs, credit cards). An on-device NER model (ONNX, no cloud calls) catches soft PII (names, organizations, locations).
+2. **Replace** — Each PII value gets a stable placeholder: `<PII type="PERSON" id="1"/>`. The LLM works with these instead of real data.
+3. **Persist** — The same entity always gets the same ID, across every message in the session. The LLM maintains relational coherence without ever seeing real PII.
+4. **Rehydrate** — When a response needs to become real again (a file write, a bash command, a final answer), Rehydra restores the original values from its encrypted map.
 
 ## Quick Start
 
@@ -50,24 +57,11 @@ npx @rehydra/cli proxy claude --api-key sk-ant-...
     ANTHROPIC_BASE_URL=http://127.0.0.1:8787 claude
 ```
 
-Names, emails, phone numbers, and other PII are replaced with placeholders in transit. Tool results (file reads, bash output) are anonymized. Tool call arguments (file writes, bash commands) are rehydrated. The LLM never sees real PII.
+Names, emails, phone numbers, and secrets are replaced with placeholders in transit. Tool results (file reads, bash output) are anonymized on the way out. Tool call arguments (file writes, bash commands) are rehydrated on the way back. The LLM never sees real PII — but your tools always get real values.
 
 > **Note:** The proxy requires an [Anthropic API key](https://console.anthropic.com/settings/keys). Claude Max/Pro subscriptions use OAuth which `api.anthropic.com` does not support through proxies.
 
-### Library — embed PII anonymization in your app
-
-```typescript
-import { anonymize } from 'rehydra';
-
-const { anonymizedText } = await anonymize(
-  'Email john.smith@acme-corp.com or call John at +41 79 123 45 67'
-);
-// → "Email <PII type="EMAIL" id="1"/> or call <PII type="PERSON" id="2"/> at <PII type="PHONE" id="3"/>"
-```
-
-Works in **Node.js**, **Bun**, and **browsers**. No data leaves your machine.
-
-### OpenCode plugin — scrub secrets from your coding agent
+### OpenCode plugin
 
 ```bash
 npm install @rehydra/opencode
@@ -79,16 +73,59 @@ npm install @rehydra/opencode
 
 Intercepts the conversation between [OpenCode](https://github.com/sst/opencode) and the LLM. Secrets from `.env` files are replaced with placeholders before they leave your machine and restored before tools execute.
 
-## Features
+### CLI
 
-- **Regex + NER detection** — emails, phones, IBANs, credit cards, names, orgs, locations, and more
-- **LLM Proxy** — CLI proxy or drop-in `fetch` wrapper for OpenAI, Anthropic, and compatible APIs
-- **Streaming** — Transform stream with low-latency mode for real-time LLM token streams
-- **Sessions** — consistent PII IDs across multi-message conversations with persistent storage
-- **Encryption** — AES-256-GCM via Web Crypto API
-- **Semantic enrichment** — optional gender/scope attributes for better machine translation
+For automation and server-side use.
 
-## Example: Full Round-Trip with NER and Sessions
+<p align="center">
+  <img src="demo.gif" alt="Rehydra Demo" />
+</p>
+
+### Library — embed PII anonymization in your app
+
+Highly customizable backbone of the implementations above. Supports custom NER models, encryption key providers, session storage providers, tag formats and many more tweaks.
+
+```typescript
+import { anonymize } from 'rehydra';
+
+const { anonymizedText } = await anonymize(
+  'Email john.smith@acme-corp.com or call John at +41 79 123 45 67'
+);
+```
+
+Works in **Node.js**, **Bun**, and **browsers**. No data leaves your machine.
+
+## Why Rehydra?
+
+### Reversible, not destructive
+
+Most PII libraries mask or redact permanently. Rehydra encrypts the original values with AES-256-GCM and restores them on demand. Anonymize for the LLM, rehydrate for your tools — a full round-trip, not a one-way street.
+
+### Session-persistent identity
+
+`PERSON_1` stays `PERSON_1` across every message in the conversation. When John Smith comes up in message 1, message 5, and message 20, the LLM sees the same placeholder every time. It can track relationships, reference earlier context, and produce coherent multi-turn output — without ever seeing real PII. Sessions persist to SQLite (server), IndexedDB (browser), or in-memory, so identity mappings survive restarts.
+
+### Zero-trust, on-device
+
+NER inference runs locally via ONNX Runtime (~280 MB quantized model). No API calls to external services. Works offline. PII never leaves your machine.
+
+### LLM proxy with tool-call rehydration
+
+The CLI proxy sits between your coding agent and the API. It anonymizes outbound messages and — critically — rehydrates tool-call arguments before they execute. When the LLM says "write `<PII type="EMAIL" id="1"/>` to config.yaml," the proxy restores the real email before the file is written. Your agent works normally. Your data stays private.
+
+### Secrets, not just PII
+
+Beyond names, emails, and phone numbers, Rehydra detects API keys (OpenAI, Anthropic, Stripe, AWS, GitHub...), JWTs, private keys, database connection strings, and `.env` secrets.
+
+### Streaming-aware
+
+Purpose-built for LLM token streams. A sentence-buffered chunking system with NER overlap preservation ensures accurate detection even when PII spans chunk boundaries — with a low-latency mode for real-time streaming.
+
+### Semantic enrichment for machine translation
+
+Optional gender and scope attributes on PII tags (`<PII type="PERSON" gender="male" id="1"/>`, `<PII type="LOCATION" scope="city" id="2"/>`) preserve grammatical context for downstream systems.
+
+## Example: Full Round-Trip with Sessions
 
 ```typescript
 import {
@@ -137,8 +174,8 @@ await anonymizer.dispose();
 
 | Package | Description |
 |---------|-------------|
-| [`rehydra`](https://www.npmjs.com/package/rehydra) | Core SDK |
-| [`@rehydra/cli`](packages/cli/) | Anonymize and rehydrate from the terminal |
+| [`rehydra`](https://www.npmjs.com/package/rehydra) | Core SDK — detect, anonymize, rehydrate |
+| [`@rehydra/cli`](packages/cli/) | CLI proxy and terminal anonymization |
 | [`@rehydra/opencode`](packages/opencode-plugin/) | OpenCode plugin — scrubs secrets before they reach LLM providers |
 
 ## Documentation
