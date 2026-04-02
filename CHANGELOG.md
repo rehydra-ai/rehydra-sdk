@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.9.0...v0.9.1) (2026-04-02)
+
+
+### Bug Fixes
+
+* handle MCP tool results in opencode plugin tool.execute.after hook ([#60](https://github.com/rehydra-ai/rehydra-sdk/issues/60)) ([b5bc9e0](https://github.com/rehydra-ai/rehydra-sdk/commit/b5bc9e0d1a034838e01e2edb4b7702e5a6ff904c)), closes [#59](https://github.com/rehydra-ai/rehydra-sdk/issues/59)
+
 ## [0.9.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.8.0...v0.9.0) (2026-03-28)
 
 
