@@ -371,6 +371,53 @@ describe("OpenCode Plugin", () => {
       expect(output.title).toBe("$ cat .env");
     });
 
+    it("should rehydrate PII tags in MCP CallToolResult shape", async () => {
+      // Anonymize first
+      const msgOutput = {
+        messages: [
+          message("user", [textPart(`Key: ${TEST_SECRET}`)]),
+        ],
+      };
+      await hooks["experimental.chat.messages.transform"]!({}, msgOutput);
+
+      const anonymizedText = (msgOutput.messages[0]!.parts[0] as { text: string }).text;
+      const tagMatch = anonymizedText.match(/<PII[^/]*\/>/);
+      const piiTag = tagMatch![0]!;
+
+      // MCP tools pass raw CallToolResult — no title/output fields
+      const output = {
+        content: [
+          { type: "text", text: `Search results for ${piiTag}: found 3 matches` },
+        ],
+        isError: false,
+      };
+
+      await hooks["tool.execute.after"]!(
+        { tool: "tavily_search", sessionID: "ses-1", callID: "call-13", args: {} },
+        output,
+      );
+
+      const text = (output.content[0] as { text: string }).text;
+      expect(text).toContain(TEST_SECRET);
+      expect(text).not.toContain("<PII");
+    });
+
+    it("should not throw on MCP output without PII tags", async () => {
+      const output = {
+        content: [
+          { type: "text", text: "No sensitive data here" },
+        ],
+        isError: false,
+      };
+
+      await hooks["tool.execute.after"]!(
+        { tool: "exa_search", sessionID: "ses-1", callID: "call-14", args: {} },
+        output,
+      );
+
+      expect((output.content[0] as { text: string }).text).toBe("No sensitive data here");
+    });
+
     it("should not modify output without PII tags", async () => {
       const output = {
         title: "$ ls -la",
