@@ -304,6 +304,10 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
         }
       },
 
+      // Output shape varies by tool type: native tools pass
+      // { title, output, metadata } while MCP tools pass the raw
+      // CallToolResult ({ content: [{type,text}], … }).  Use deepRehydrate
+      // so we handle any shape without hard-coding field names.
       "tool.execute.after": async (
         input: {
           tool: string;
@@ -311,21 +315,13 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
           callID: string;
           args: unknown;
         },
-        output: { title: string; output: string; metadata: unknown },
+        output: Record<string, unknown>,
       ): Promise<void> => {
         const session = getSession(input.sessionID);
-        let rehydrated = false;
+        const before = JSON.stringify(output);
+        await deepRehydrate(output, session, tagPrefix);
 
-        if (output.title.includes(tagPrefix)) {
-          output.title = await session.rehydrate(output.title);
-          rehydrated = true;
-        }
-        if (output.output.includes(tagPrefix)) {
-          output.output = await session.rehydrate(output.output);
-          rehydrated = true;
-        }
-
-        if (rehydrated) {
+        if (JSON.stringify(output) !== before) {
           log("info", "rehydrated PII tags in tool result", {
             tool: input.tool,
             callID: input.callID,
