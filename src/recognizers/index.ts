@@ -12,6 +12,7 @@ export { bicSwiftRecognizer } from './bic-swift.js';
 export { creditCardRecognizer, identifyCardType } from './credit-card.js';
 export { ipAddressRecognizer, isInternalIPv4 } from './ip-address.js';
 export { urlRecognizer, extractDomain } from './url.js';
+export { dateRecognizer } from './date.js';
 export {
   createCustomIdRecognizer,
   createCaseIdRecognizer,
@@ -31,6 +32,7 @@ import { bicSwiftRecognizer } from './bic-swift.js';
 import { creditCardRecognizer } from './credit-card.js';
 import { ipAddressRecognizer } from './ip-address.js';
 import { urlRecognizer } from './url.js';
+import { dateRecognizer } from './date.js';
 import { createCaseIdRecognizer, createCustomerIdRecognizer } from './custom-id.js';
 
 /**
@@ -47,6 +49,7 @@ export function createDefaultRegistry(): RecognizerRegistry {
   registry.register(creditCardRecognizer);
   registry.register(ipAddressRecognizer);
   registry.register(urlRecognizer);
+  registry.register(dateRecognizer);
 
   // Register default custom ID recognizers
   registry.register(createCaseIdRecognizer());

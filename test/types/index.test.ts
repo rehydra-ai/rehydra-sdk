@@ -86,7 +86,7 @@ describe("PII Types", () => {
       expect(NER_LABEL_TO_PII_TYPE["LOC"]).toBe(PIIType.LOCATION);
       expect(NER_LABEL_TO_PII_TYPE["LOCATION"]).toBe(PIIType.LOCATION);
       expect(NER_LABEL_TO_PII_TYPE["GPE"]).toBe(PIIType.LOCATION);
-      expect(NER_LABEL_TO_PII_TYPE["DATE"]).toBe(PIIType.DATE_OF_BIRTH);
+      expect(NER_LABEL_TO_PII_TYPE["DATE"]).toBe(PIIType.DATE);
       expect(NER_LABEL_TO_PII_TYPE["MISC"]).toBe(PIIType.ADDRESS);
     });
   });
@@ -164,7 +164,7 @@ describe("createDefaultPolicy", () => {
     expect(policy.enabledTypes.has(PIIType.PERSON)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.PHONE)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.IBAN)).toBe(true);
-    expect(policy.enabledTypes.size).toBe(17);
+    expect(policy.enabledTypes.size).toBe(18);
   });
 
   it("should have correct regex-enabled types", () => {
