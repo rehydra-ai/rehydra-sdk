@@ -109,6 +109,8 @@ function mergePolicyWithBase(
     enableLeakScan: partial.enableLeakScan ?? base.enableLeakScan,
     enableSemanticMasking:
       partial.enableSemanticMasking ?? base.enableSemanticMasking,
+    excludeLocationScopes:
+      partial.excludeLocationScopes ?? base.excludeLocationScopes,
   };
 }
 
@@ -613,10 +615,23 @@ export class Anonymizer {
         })
       : titleExtractedMatches;
 
+    // Step 4.7: Filter out LOCATION spans whose scope is excluded
+    const scopeFilteredMatches =
+      effectivePolicy.enableSemanticMasking &&
+      effectivePolicy.excludeLocationScopes.size > 0
+        ? enrichedMatches.filter(
+            (span) =>
+              span.type !== PIIType.LOCATION ||
+              !effectivePolicy.excludeLocationScopes.has(
+                span.semantic?.scope ?? "unknown"
+              )
+          )
+        : enrichedMatches;
+
     // Step 5: Tag entities and build PII map
     const { anonymizedText, entities, piiMap } = tagEntities(
       normalizedText,
-      enrichedMatches,
+      scopeFilteredMatches,
       effectivePolicy,
       existingPiiMap,
       this.tagFormat
