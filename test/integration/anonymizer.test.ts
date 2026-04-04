@@ -396,6 +396,23 @@ describe('Anonymizer Class', () => {
       expect(statuses.length).toBeGreaterThanOrEqual(0);
     });
 
+    it('should apply excludeLocationScopes when semantic masking is enabled', { timeout: 15_000 }, async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        semantic: { enabled: true },
+      });
+      await anonymizer.initialize();
+
+      const result = await anonymizer.anonymize(
+        'Contact support@example.com for help.',
+        undefined,
+        { excludeLocationScopes: new Set(['country', 'region'] as const) }
+      );
+      // Should still anonymize non-location PII
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
+
     it('should preserve enableSemanticMasking when passing partial policy override', async () => {
       const keyProvider = new InMemoryKeyProvider();
       const anonymizer = createAnonymizer({

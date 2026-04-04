@@ -197,6 +197,10 @@ export interface AnonymizationPolicy {
   enableLeakScan: boolean;
   /** Enable semantic attribute enrichment for MT-friendly tags (gender, location scope) */
   enableSemanticMasking: boolean;
+  /** Location scopes to exclude from anonymization (e.g., 'country', 'region').
+   *  Requires enableSemanticMasking to be true. Locations whose scope matches
+   *  one of these values are dropped before tagging. */
+  excludeLocationScopes: Set<LocationScope>;
 }
 
 /**
@@ -309,6 +313,7 @@ export function createDefaultPolicy(): AnonymizationPolicy {
     reuseIdsForRepeatedPII: false,
     enableLeakScan: true,
     enableSemanticMasking: false,
+    excludeLocationScopes: new Set(),
   };
 }
 
@@ -347,5 +352,7 @@ export function mergePolicy(
     enableLeakScan: partial.enableLeakScan ?? defaultPolicy.enableLeakScan,
     enableSemanticMasking:
       partial.enableSemanticMasking ?? defaultPolicy.enableSemanticMasking,
+    excludeLocationScopes:
+      partial.excludeLocationScopes ?? defaultPolicy.excludeLocationScopes,
   };
 }
