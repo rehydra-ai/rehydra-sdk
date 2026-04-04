@@ -248,8 +248,8 @@ export interface AnonymizerConfig {
    */
   piiStorageProvider?: PIIStorageProvider;
 
-  /** Default policy (uses default if not provided) */
-  defaultPolicy?: AnonymizationPolicy;
+  /** Default policy — merged with SDK defaults, so partial overrides are safe */
+  defaultPolicy?: Partial<AnonymizationPolicy>;
 
   /** Model version string */
   modelVersion?: string;
@@ -311,7 +311,9 @@ export class Anonymizer {
     this.mode = config.mode ?? "pseudonymize";
     this.keyProvider = config.keyProvider ?? null;
     this.piiStorageProvider = config.piiStorageProvider ?? null;
-    this.defaultPolicy = config.defaultPolicy ?? createDefaultPolicy();
+    this.defaultPolicy = config.defaultPolicy
+      ? mergePolicyWithBase(createDefaultPolicy(), config.defaultPolicy)
+      : createDefaultPolicy();
     this.policyVersion = config.policyVersion ?? "1.0.0";
     this.sessionFactory = sessionFactory ?? null;
     this.onValidationWarning = config.onValidationWarning ?? null;
