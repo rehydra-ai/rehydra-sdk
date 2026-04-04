@@ -103,7 +103,7 @@ export function parseTag(
   // Build regex dynamically from tag format
   const match = tag.match(
     new RegExp(
-      `^${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}$`
+      `^${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="([\\w-]+)")?\\s+id="(\\d+)"\\s*${close}$`
     )
   );
 
@@ -141,7 +141,7 @@ export function parseTag(
     if (
       scopeStr !== undefined &&
       scopeStr !== "" &&
-      ["city", "country", "region", "unknown"].includes(scopeStr)
+      ["city", "country", "region", "macro-region", "unknown"].includes(scopeStr)
     ) {
       semantic.scope = scopeStr as SemanticAttributes["scope"];
     }
@@ -463,7 +463,7 @@ function buildFuzzyTagPatterns(
   // Optional gender attribute
   const genderAttr = `(?:${FLEXIBLE_WS}gender${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
   // Optional scope attribute
-  const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
+  const scopeAttr = `(?:${FLEXIBLE_WS}scope${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}([\\w-]+)${QUOTE_CHARS})?`;
 
   const escapedKeyword = escapeRegExp(keyword);
 
@@ -563,7 +563,7 @@ export function extractTags(
             if (
               scopeStr !== undefined &&
               scopeStr !== "" &&
-              ["city", "country", "region", "unknown"].includes(
+              ["city", "country", "region", "macro-region", "unknown"].includes(
                 scopeStr.toLowerCase()
               )
             ) {
@@ -606,7 +606,7 @@ export function extractTagsStrict(
   const close = escapeRegExp(tagFormat.close);
   // Pattern matches: OPEN KEYWORD type="X" [gender="Y"] [scope="Z"] id="N" CLOSE
   const tagPattern = new RegExp(
-    `${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="(\\w+)")?\\s+id="(\\d+)"\\s*${close}`,
+    `${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="([\\w-]+)")?\\s+id="(\\d+)"\\s*${close}`,
     "g"
   );
 
@@ -639,7 +639,7 @@ export function extractTagsStrict(
           if (
             scopeStr !== undefined &&
             scopeStr !== "" &&
-            ["city", "country", "region", "unknown"].includes(scopeStr)
+            ["city", "country", "region", "macro-region", "unknown"].includes(scopeStr)
           ) {
             semantic.scope = scopeStr as SemanticAttributes["scope"];
           }

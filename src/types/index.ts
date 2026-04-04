@@ -32,7 +32,7 @@ export type PersonGender = "male" | "female" | "neutral" | "unknown";
  * Scope attribute for LOCATION entities
  * Helps MT engines select correct prepositions (e.g., "in Berlin" vs "in Germany")
  */
-export type LocationScope = "city" | "country" | "region" | "unknown";
+export type LocationScope = "city" | "country" | "region" | "macro-region" | "unknown";
 
 /**
  * Semantic attributes for PII entities

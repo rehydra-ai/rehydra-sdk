@@ -465,6 +465,22 @@ describe('Anonymizer Class', () => {
       expect(result.anonymizedText).toContain('<PII type="EMAIL"');
     });
 
+    it('should merge partial defaultPolicy with SDK defaults instead of replacing', async () => {
+      const keyProvider = new InMemoryKeyProvider();
+      // Pass only excludeLocationScopes — all other fields should come from defaults
+      const anonymizer = createAnonymizer({
+        keyProvider,
+        defaultPolicy: {
+          excludeLocationScopes: new Set(['country', 'region']),
+        },
+      });
+      await anonymizer.initialize();
+
+      const result = await anonymizer.anonymize('Contact test@example.com');
+      // Should still detect email (enabledTypes, regexEnabledTypes filled from defaults)
+      expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    });
+
     it('should allow overriding specific thresholds while preserving others', async () => {
       const keyProvider = new InMemoryKeyProvider();
       const anonymizer = createAnonymizer({ keyProvider });
