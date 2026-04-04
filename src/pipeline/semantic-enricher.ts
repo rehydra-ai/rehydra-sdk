@@ -20,6 +20,7 @@ import {
   loadSemanticData,
   getSemanticDataSync,
   getDataStats,
+  MACRO_REGIONS,
 } from "./semantic-data-loader.js";
 
 /**
@@ -187,13 +188,18 @@ const MAJOR_CITY_POPULATION = 500000;
  */
 function lookupLocationTypeSync(
   location: string
-): { type: "city" | "country" | "region"; countryCode?: string } | undefined {
+): { type: "city" | "country" | "region" | "macro-region"; countryCode?: string } | undefined {
   const data = getSemanticDataSync();
   if (data === null) return undefined;
 
   const normalized = location.toLowerCase().trim();
 
-  // Check countries FIRST (to avoid "USA" being matched as a city)
+  // Check macro-regions FIRST (continents, large geographic areas)
+  if (MACRO_REGIONS.has(normalized)) {
+    return { type: "macro-region" };
+  }
+
+  // Check countries (to avoid "USA" being matched as a city)
   const countryCode = data.countries.get(normalized);
   if (countryCode !== undefined) {
     return { type: "country", countryCode };

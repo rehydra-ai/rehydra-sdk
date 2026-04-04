@@ -167,6 +167,44 @@ describe("Semantic Enricher", () => {
       });
     });
 
+    describe("macro-regions", () => {
+      it("should identify continents as macro-region", async () => {
+        if (!dataAvailable) return;
+        expect(classifyLocation("Europe").scope).toBe("macro-region");
+        expect(classifyLocation("Asia").scope).toBe("macro-region");
+        expect(classifyLocation("Africa").scope).toBe("macro-region");
+        expect(classifyLocation("North America").scope).toBe("macro-region");
+        expect(classifyLocation("South America").scope).toBe("macro-region");
+      });
+
+      it("should identify sub-continental areas as macro-region", async () => {
+        if (!dataAvailable) return;
+        expect(classifyLocation("Southeast Asia").scope).toBe("macro-region");
+        expect(classifyLocation("Middle East").scope).toBe("macro-region");
+        expect(classifyLocation("Scandinavia").scope).toBe("macro-region");
+        expect(classifyLocation("North Atlantic").scope).toBe("macro-region");
+      });
+
+      it("should handle case-insensitive macro-region lookup", async () => {
+        if (!dataAvailable) return;
+        expect(classifyLocation("europe").scope).toBe("macro-region");
+        expect(classifyLocation("EUROPE").scope).toBe("macro-region");
+      });
+
+      it("should not return countryCode for macro-regions", async () => {
+        if (!dataAvailable) return;
+        const result = classifyLocation("Europe");
+        expect(result.scope).toBe("macro-region");
+        expect(result.countryCode).toBeUndefined();
+      });
+
+      it("should not shadow countries with similar names", async () => {
+        if (!dataAvailable) return;
+        // "South Africa" is a country, not "Southern Africa" the macro-region
+        expect(classifyLocation("South Africa").scope).toBe("country");
+      });
+    });
+
     it("should handle case-insensitive lookup", async () => {
       if (!dataAvailable) return;
       expect(classifyLocation("berlin").scope).toBe("city");

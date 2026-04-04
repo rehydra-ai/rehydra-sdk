@@ -827,18 +827,42 @@ export async function lookupGender(
 const MAJOR_CITY_POPULATION = 500000;
 
 /**
+ * Continents and large named geographic areas (larger than any single country).
+ * Checked before countries so that "Europe", "South America", etc. are not
+ * misclassified when a country happens to share a substring.
+ */
+export const MACRO_REGIONS: Set<string> = new Set([
+  // Continents
+  "africa", "antarctica", "asia", "europe", "oceania",
+  "north america", "south america",
+  // Sub-continental / commonly referenced geographic areas
+  "middle east", "southeast asia", "east asia", "south asia", "central asia",
+  "western europe", "eastern europe", "northern europe", "southern europe", "central europe",
+  "central america", "the caribbean", "caribbean",
+  "north africa", "sub-saharan africa", "west africa", "east africa", "southern africa",
+  "pacific", "south pacific", "north atlantic", "south atlantic",
+  "latin america", "scandinavia", "balkans", "caucasus", "levant",
+  "arctic", "indian subcontinent", "polynesia", "melanesia", "micronesia",
+]);
+
+/**
  * Looks up location type (city, country, or region)
- * Priority: country > major city (pop > 500K) > region > other cities
+ * Priority: macro-region > country > major city (pop > 500K) > region > other cities
  */
 export async function lookupLocationType(
   location: string
 ): Promise<
-  { type: "city" | "country" | "region"; countryCode?: string } | undefined
+  { type: "city" | "country" | "region" | "macro-region"; countryCode?: string } | undefined
 > {
   const data = await getSemanticData();
   const normalized = location.toLowerCase().trim();
 
-  // Check countries FIRST (to avoid "USA" being matched as a city)
+  // Check macro-regions FIRST (continents, large geographic areas)
+  if (MACRO_REGIONS.has(normalized)) {
+    return { type: "macro-region" };
+  }
+
+  // Check countries (to avoid "USA" being matched as a city)
   const countryCode = data.countries.get(normalized);
   if (countryCode !== undefined) {
     return { type: "country", countryCode };

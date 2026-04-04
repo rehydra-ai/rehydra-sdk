@@ -119,6 +119,15 @@ describe("Tagger", () => {
       });
     });
 
+    it("should parse tags with macro-region scope", () => {
+      const result = parseTag('<PII type="LOCATION" scope="macro-region" id="1"/>');
+      expect(result).toEqual({
+        type: PIIType.LOCATION,
+        id: 1,
+        semantic: { scope: "macro-region" },
+      });
+    });
+
     it("should ignore invalid semantic values", () => {
       const result = parseTag('<PII type="PERSON" gender="invalid" id="1"/>');
       expect(result).toEqual({
@@ -347,6 +356,22 @@ describe("Tagger", () => {
         expect(tags).toHaveLength(1);
         expect(tags[0]?.semantic?.gender).toBe("female");
         expect(tags[0]?.semantic?.scope).toBe("country");
+      });
+
+      it("should extract macro-region scope", () => {
+        const text = 'Across <PII type="LOCATION" scope="macro-region" id="1"/> today';
+        const tags = extractTags(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic?.scope).toBe("macro-region");
+      });
+
+      it("should extract macro-region scope via strict extraction", () => {
+        const text = 'Across <PII type="LOCATION" scope="macro-region" id="1"/> today';
+        const tags = extractTagsStrict(text);
+
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.semantic?.scope).toBe("macro-region");
       });
 
       it("should handle fuzzy matching with semantic attributes", () => {
