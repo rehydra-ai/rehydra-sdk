@@ -21,6 +21,9 @@ export enum PIIType {
   ACCOUNT_NUMBER = 'ACCOUNT_NUMBER',
   CREDIT_CARD = 'CREDIT_CARD',
 
+  // Temporal
+  DATE = 'DATE',
+
   // Government/Tax identifiers
   TAX_ID = 'TAX_ID',
   NATIONAL_ID = 'NATIONAL_ID',
@@ -59,6 +62,7 @@ export const REGEX_PII_TYPES: readonly PIIType[] = [
   PIIType.ACCOUNT_NUMBER,
   PIIType.TAX_ID,
   PIIType.NATIONAL_ID,
+  PIIType.DATE,
   PIIType.CASE_ID,
   PIIType.CUSTOMER_ID,
 ];
@@ -99,6 +103,7 @@ export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   PIIType.ORG,
   PIIType.PERSON,
   // Medium priority
+  PIIType.DATE,
   PIIType.DATE_OF_BIRTH,
   PIIType.PHONE,
   PIIType.EMAIL,
@@ -134,7 +139,7 @@ export const NER_LABEL_TO_PII_TYPE: Record<string, PIIType> = {
   LOC: PIIType.LOCATION,
   LOCATION: PIIType.LOCATION,
   GPE: PIIType.LOCATION, // Geo-Political Entity
-  DATE: PIIType.DATE_OF_BIRTH,
+  DATE: PIIType.DATE,
   // Some models use MISC for addresses
   MISC: PIIType.ADDRESS,
 };

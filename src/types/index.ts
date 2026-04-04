@@ -290,6 +290,7 @@ export function createDefaultPolicy(): AnonymizationPolicy {
       PIIType.CREDIT_CARD,
       PIIType.IP_ADDRESS,
       PIIType.URL,
+      PIIType.DATE,
       PIIType.CASE_ID,
       PIIType.CUSTOMER_ID,
     ]),
