@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.9.1...v0.10.0) (2026-04-04)
+
+
+### Features
+
+* add excludeLocationScopes policy option ([#63](https://github.com/rehydra-ai/rehydra-sdk/issues/63)) ([fc06584](https://github.com/rehydra-ai/rehydra-sdk/commit/fc06584437d71bd27ab61a31d35a0339e5fffe21))
+* add regex-based DATE recognizer for common date formats ([#62](https://github.com/rehydra-ai/rehydra-sdk/issues/62)) ([cb5be93](https://github.com/rehydra-ai/rehydra-sdk/commit/cb5be93c006b11239df3d32da166e69343ab80fd))
+
 ## [0.9.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.9.0...v0.9.1) (2026-04-02)
 
 
