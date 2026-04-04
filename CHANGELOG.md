@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.0...v0.10.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* merge partial defaultPolicy with SDK defaults and add macro-region scope ([#66](https://github.com/rehydra-ai/rehydra-sdk/issues/66)) ([9d1118c](https://github.com/rehydra-ai/rehydra-sdk/commit/9d1118cb344fe136c51bca35f93acaae114547a4))
+
 ## [0.10.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.9.1...v0.10.0) (2026-04-04)
 
 
