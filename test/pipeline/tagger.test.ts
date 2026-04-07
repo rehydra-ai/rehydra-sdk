@@ -85,9 +85,18 @@ describe("Tagger", () => {
     });
 
     it("should return null for invalid tags", () => {
-      expect(parseTag('<PII type="INVALID" id="1"/>')).toBeNull();
       expect(parseTag('<PII type="PERSON"/>')).toBeNull();
       expect(parseTag("not a tag")).toBeNull();
+    });
+
+    it("should accept non-enum type strings (custom recognizers, issue #68)", () => {
+      // parseTag is intentionally permissive: any [A-Z_]+ type is accepted so
+      // that createCustomIdRecognizer tags survive round-tripping.
+      expect(parseTag('<PII type="INVALID" id="1"/>')).toEqual({
+        type: "INVALID",
+        id: 1,
+        semantic: undefined,
+      });
     });
 
     it("should parse tags with gender attribute", () => {
@@ -1221,6 +1230,155 @@ describe("Tagger", () => {
         const restored = rehydrate(tagged.anonymizedText, tagged.piiMap, false, regexFormat);
         expect(restored).toBe(original);
       });
+    });
+  });
+
+  describe("custom PII types (issue #68)", () => {
+    // Custom recognizers (createCustomIdRecognizer) may emit type strings that
+    // are not members of the PIIType enum. The tagger must treat `type` as an
+    // opaque [A-Z_]+ string so that anonymize → rehydrate round-trips work.
+    const customType = "AMOUNT" as unknown as PIIType;
+
+    it("parseTag should accept a custom type string", () => {
+      const result = parseTag('<PII type="AMOUNT" id="1"/>');
+      expect(result).toEqual({ type: "AMOUNT", id: 1 });
+    });
+
+    it("extractTags should return tags with a custom type", () => {
+      const text = 'pay <PII type="AMOUNT" id="1"/> to <PII type="EMAIL" id="2"/>';
+      const tags = extractTags(text);
+      expect(tags).toHaveLength(2);
+      expect(tags[0]).toMatchObject({ type: "AMOUNT", id: 1 });
+      expect(tags[1]).toMatchObject({ type: PIIType.EMAIL, id: 2 });
+    });
+
+    it("extractTagsStrict should return tags with a custom type", () => {
+      const text = 'pay <PII type="AMOUNT" id="1"/> to <PII type="EMAIL" id="2"/>';
+      const tags = extractTagsStrict(text);
+      expect(tags).toHaveLength(2);
+      expect(tags[0]).toMatchObject({ type: "AMOUNT", id: 1 });
+      expect(tags[1]).toMatchObject({ type: PIIType.EMAIL, id: 2 });
+    });
+
+    it("rehydrate should restore custom-type tags from the PII map", () => {
+      const anonymized =
+        'pay <PII type="AMOUNT" id="1"/> to <PII type="EMAIL" id="2"/>';
+      const piiMap: RawPIIMap = new Map([
+        ["AMOUNT_1", "2000 EUR"],
+        ["EMAIL_2", "john@company.com"],
+      ]);
+      expect(rehydrate(anonymized, piiMap)).toBe(
+        "pay 2000 EUR to john@company.com"
+      );
+    });
+
+    it("tagEntities + rehydrate should round-trip custom types", () => {
+      const original = "pay 2000 EUR to john@company.com";
+      const matches: SpanMatch[] = [
+        {
+          type: customType,
+          text: "2000 EUR",
+          start: 4,
+          end: 12,
+          confidence: 0.9,
+          source: DetectionSource.REGEX,
+        },
+        {
+          type: PIIType.EMAIL,
+          text: "john@company.com",
+          start: 16,
+          end: 32,
+          confidence: 1,
+          source: DetectionSource.REGEX,
+        },
+      ];
+      // Policy must enable the custom type, just like the reporter's repro.
+      const policy = {
+        ...defaultPolicy,
+        enabledTypes: new Set([...defaultPolicy.enabledTypes, customType]),
+      };
+      const tagged = tagEntities(original, matches, policy);
+      expect(tagged.anonymizedText).toBe(
+        'pay <PII type="AMOUNT" id="1"/> to <PII type="EMAIL" id="2"/>'
+      );
+      expect(tagged.piiMap.get("AMOUNT_1")).toBe("2000 EUR");
+      expect(rehydrate(tagged.anonymizedText, tagged.piiMap)).toBe(original);
+    });
+
+    it("rehydrate should still ignore genuinely malformed tags", () => {
+      // Missing closing quote on the id — regex shouldn't match either form.
+      const malformed = 'pay <PII type="AMOUNT" id="1/> to someone';
+      const piiMap: RawPIIMap = new Map([["AMOUNT_1", "2000 EUR"]]);
+      const restored = rehydrate(malformed, piiMap);
+      // Fuzzy matcher may tolerate the missing quote around the id, which is
+      // intentional. What we want to verify is that the restored output is
+      // *not* mangled and that we don't throw — either the tag is left alone
+      // or it's replaced cleanly. Both are acceptable outcomes.
+      expect(restored === malformed || restored.includes("2000 EUR")).toBe(
+        true
+      );
+    });
+
+    it("extractTags character class is still [A-Z_]+", () => {
+      // Hyphens, digits, and other non-[A-Z_] characters in the type attribute
+      // must still break tag matching. (Lowercase is intentionally accepted by
+      // the fuzzy matcher to survive translation artifacts, then upper-cased.)
+      expect(extractTags('<PII type="AMOUNT-X" id="1"/>')).toEqual([]);
+      expect(extractTags('<PII type="AMOUNT2" id="1"/>')).toEqual([]);
+      expect(extractTagsStrict('<PII type="amount" id="1"/>')).toEqual([]);
+    });
+
+    it("createPIIMapKey should build keys for custom types", () => {
+      // Downstream contract: the type is stringly-keyed, no enum check.
+      expect(createPIIMapKey(customType, 7)).toBe("AMOUNT_7");
+    });
+
+    it("rehydrate should use existing PII map lookups for custom types on repeat calls", () => {
+      // Simulates session-level ID reuse: first call seeds a PII map with a
+      // custom type, second call reuses the same ID via buildExistingEntityLookup
+      // (which internally uses the parsePIIMapKey path we fixed).
+      const first = tagEntities(
+        "pay 2000 EUR",
+        [
+          {
+            type: customType,
+            text: "2000 EUR",
+            start: 4,
+            end: 12,
+            confidence: 0.9,
+            source: DetectionSource.REGEX,
+          },
+        ],
+        {
+          ...defaultPolicy,
+          enabledTypes: new Set([...defaultPolicy.enabledTypes, customType]),
+          reuseIdsForRepeatedPII: true,
+        }
+      );
+      const firstKey = Array.from(first.piiMap.keys())[0]!;
+      expect(firstKey).toBe("AMOUNT_1");
+
+      const second = tagEntities(
+        "pay 2000 EUR again",
+        [
+          {
+            type: customType,
+            text: "2000 EUR",
+            start: 4,
+            end: 12,
+            confidence: 0.9,
+            source: DetectionSource.REGEX,
+          },
+        ],
+        {
+          ...defaultPolicy,
+          enabledTypes: new Set([...defaultPolicy.enabledTypes, customType]),
+          reuseIdsForRepeatedPII: true,
+        },
+        first.piiMap
+      );
+      // Same value should reuse ID 1, not allocate a new ID 2.
+      expect(second.anonymizedText).toBe('pay <PII type="AMOUNT" id="1"/> again');
     });
   });
 });

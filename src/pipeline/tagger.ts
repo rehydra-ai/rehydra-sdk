@@ -116,13 +116,11 @@ export function parseTag(
     return null;
   }
 
+  // Allow any [A-Z_]+ type string — custom recognizers (createCustomIdRecognizer)
+  // may emit types that are not members of the PIIType enum. Downstream code
+  // treats `type` as an opaque string when building PII map keys.
   const type = typeStr as PIIType;
   const id = parseInt(idStr, 10);
-
-  // Validate type is a valid PIIType
-  if (!Object.values(PIIType).includes(type)) {
-    return null;
-  }
 
   // Build semantic attributes if present
   let semantic: SemanticAttributes | undefined;
@@ -167,11 +165,10 @@ function parsePIIMapKey(key: string): { type: PIIType; id: number } | null {
   if (!match || match[1] === undefined || match[2] === undefined) {
     return null;
   }
+  // Allow any [A-Z_]+ type — matches what parseTag accepts, so custom-type
+  // entries survive `buildExistingEntityLookup` and session-level ID reuse.
   const type = match[1] as PIIType;
   const id = parseInt(match[2], 10);
-  if (!Object.values(PIIType).includes(type)) {
-    return null;
-  }
   return { type, id };
 }
 
@@ -539,48 +536,49 @@ export function extractTags(
       }
 
       if (typeStr !== undefined && idStr !== undefined) {
+        // Accept any [A-Z_]+ type. Custom recognizers registered via
+        // createCustomIdRecognizer may emit types that are not PIIType enum
+        // members; rehydrate() must still be able to restore them.
         const type = typeStr.toUpperCase() as PIIType;
         const id = parseInt(idStr, 10);
 
-        if (Object.values(PIIType).includes(type)) {
-          // Build semantic attributes if present
-          let semantic: SemanticAttributes | undefined;
+        // Build semantic attributes if present
+        let semantic: SemanticAttributes | undefined;
+        if (
+          (genderStr !== undefined && genderStr !== "") ||
+          (scopeStr !== undefined && scopeStr !== "")
+        ) {
+          semantic = {};
           if (
-            (genderStr !== undefined && genderStr !== "") ||
-            (scopeStr !== undefined && scopeStr !== "")
+            genderStr !== undefined &&
+            genderStr !== "" &&
+            ["male", "female", "neutral", "unknown"].includes(
+              genderStr.toLowerCase()
+            )
           ) {
-            semantic = {};
-            if (
-              genderStr !== undefined &&
-              genderStr !== "" &&
-              ["male", "female", "neutral", "unknown"].includes(
-                genderStr.toLowerCase()
-              )
-            ) {
-              semantic.gender =
-                genderStr.toLowerCase() as SemanticAttributes["gender"];
-            }
-            if (
-              scopeStr !== undefined &&
-              scopeStr !== "" &&
-              ["city", "country", "region", "macro-region", "unknown"].includes(
-                scopeStr.toLowerCase()
-              )
-            ) {
-              semantic.scope =
-                scopeStr.toLowerCase() as SemanticAttributes["scope"];
-            }
+            semantic.gender =
+              genderStr.toLowerCase() as SemanticAttributes["gender"];
           }
-
-          tags.push({
-            type,
-            id,
-            position: match.index,
-            matchedText: match[0],
-            semantic,
-          });
-          matchedPositions.add(match.index);
+          if (
+            scopeStr !== undefined &&
+            scopeStr !== "" &&
+            ["city", "country", "region", "macro-region", "unknown"].includes(
+              scopeStr.toLowerCase()
+            )
+          ) {
+            semantic.scope =
+              scopeStr.toLowerCase() as SemanticAttributes["scope"];
+          }
         }
+
+        tags.push({
+          type,
+          id,
+          position: match.index,
+          matchedText: match[0],
+          semantic,
+        });
+        matchedPositions.add(match.index);
       }
     }
   }
@@ -618,41 +616,40 @@ export function extractTagsStrict(
     const idStr = match[4];
 
     if (typeStr !== undefined && idStr !== undefined) {
+      // Accept any [A-Z_]+ type (see extractTags for rationale).
       const type = typeStr as PIIType;
       const id = parseInt(idStr, 10);
 
-      if (Object.values(PIIType).includes(type)) {
-        // Build semantic attributes if present
-        let semantic: SemanticAttributes | undefined;
+      // Build semantic attributes if present
+      let semantic: SemanticAttributes | undefined;
+      if (
+        (genderStr !== undefined && genderStr !== "") ||
+        (scopeStr !== undefined && scopeStr !== "")
+      ) {
+        semantic = {};
         if (
-          (genderStr !== undefined && genderStr !== "") ||
-          (scopeStr !== undefined && scopeStr !== "")
+          genderStr !== undefined &&
+          genderStr !== "" &&
+          ["male", "female", "neutral", "unknown"].includes(genderStr)
         ) {
-          semantic = {};
-          if (
-            genderStr !== undefined &&
-            genderStr !== "" &&
-            ["male", "female", "neutral", "unknown"].includes(genderStr)
-          ) {
-            semantic.gender = genderStr as SemanticAttributes["gender"];
-          }
-          if (
-            scopeStr !== undefined &&
-            scopeStr !== "" &&
-            ["city", "country", "region", "macro-region", "unknown"].includes(scopeStr)
-          ) {
-            semantic.scope = scopeStr as SemanticAttributes["scope"];
-          }
+          semantic.gender = genderStr as SemanticAttributes["gender"];
         }
-
-        tags.push({
-          type,
-          id,
-          position: match.index,
-          matchedText: match[0],
-          semantic,
-        });
+        if (
+          scopeStr !== undefined &&
+          scopeStr !== "" &&
+          ["city", "country", "region", "macro-region", "unknown"].includes(scopeStr)
+        ) {
+          semantic.scope = scopeStr as SemanticAttributes["scope"];
+        }
       }
+
+      tags.push({
+        type,
+        id,
+        position: match.index,
+        matchedText: match[0],
+        semantic,
+      });
     }
   }
 
