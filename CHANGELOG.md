@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.1...v0.10.2) (2026-04-07)
+
+
+### Bug Fixes
+
+* rehydrate custom-type tags from createCustomIdRecognizer ([#68](https://github.com/rehydra-ai/rehydra-sdk/issues/68)) ([#69](https://github.com/rehydra-ai/rehydra-sdk/issues/69)) ([f0727e3](https://github.com/rehydra-ai/rehydra-sdk/commit/f0727e33385dc9f94c0757eb8e04eb119eb4d33e))
+
 ## [0.10.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.0...v0.10.1) (2026-04-04)
 
 
