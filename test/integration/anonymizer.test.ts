@@ -4,7 +4,9 @@ import {
   createAnonymizer,
   anonymize,
   anonymizeRegexOnly,
+  createCustomIdRecognizer,
   PIIType,
+  ALL_PII_TYPES,
   createDefaultPolicy,
   InMemoryKeyProvider,
   InMemoryPIIStorageProvider,
@@ -651,6 +653,77 @@ describe('Anonymizer Class', () => {
         expect(() => anonymizer.session('test-session')).not.toThrow();
       });
     });
+  });
+});
+
+describe('custom type round-trip (issue #68)', () => {
+  // Regression test for https://github.com/tjruesch/rehydra/issues/68
+  // Before the fix, session.rehydrate() silently left <PII type="AMOUNT" .../>
+  // tags in place when the type was not a member of the PIIType enum, even
+  // though session.anonymize() had detected and stored them correctly.
+  const customType = 'AMOUNT' as unknown as PIIType;
+
+  const makeAnonymizer = () => {
+    const anon = createAnonymizer({
+      ner: { mode: 'disabled' },
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      defaultPolicy: {
+        enabledTypes: new Set<PIIType>([...ALL_PII_TYPES, customType]),
+        reuseIdsForRepeatedPII: true,
+      },
+    });
+    anon
+      .getRegistry()
+      .register(
+        createCustomIdRecognizer([{ pattern: /\d+\s?EUR/g, type: customType }])
+      );
+    return anon;
+  };
+
+  it('rehydrates a custom-type tag produced by createCustomIdRecognizer', async () => {
+    const anon = makeAnonymizer();
+    await anon.initialize();
+    const session = anon.session('issue-68-single');
+
+    const input = 'pay 2000 EUR to john@company.com';
+    const result = await session.anonymize(input);
+
+    expect(result.anonymizedText).toContain('<PII type="AMOUNT"');
+    expect(result.anonymizedText).toContain('<PII type="EMAIL"');
+    expect(result.anonymizedText).not.toContain('2000 EUR');
+    expect(result.anonymizedText).not.toContain('john@company.com');
+
+    const restored = await session.rehydrate(result.anonymizedText);
+    expect(restored).toBe(input);
+  });
+
+  it('reuses existing custom-type IDs across repeated session.anonymize() calls', async () => {
+    // Exercises the parsePIIMapKey fix via buildExistingEntityLookup.
+    const anon = makeAnonymizer();
+    await anon.initialize();
+    const session = anon.session('issue-68-reuse');
+
+    const first = await session.anonymize('pay 2000 EUR now');
+    const firstMatch = first.anonymizedText.match(
+      /<PII type="AMOUNT" id="(\d+)"\/>/
+    );
+    expect(firstMatch).not.toBeNull();
+    const firstId = firstMatch![1];
+
+    const second = await session.anonymize('another 2000 EUR payment');
+    const secondMatch = second.anonymizedText.match(
+      /<PII type="AMOUNT" id="(\d+)"\/>/
+    );
+    expect(secondMatch).not.toBeNull();
+    const secondId = secondMatch![1];
+
+    // Same value should reuse the same ID thanks to session-level lookup.
+    expect(secondId).toBe(firstId);
+
+    // And the second round-trip still rehydrates cleanly.
+    const restored = await session.rehydrate(second.anonymizedText);
+    expect(restored).toBe('another 2000 EUR payment');
   });
 });
 
