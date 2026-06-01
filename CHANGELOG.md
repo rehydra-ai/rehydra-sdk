@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.2...v0.10.3) (2026-06-01)
+
+
+### Bug Fixes
+
+* buffer partial PII tag prefixes split across SSE chunks ([#72](https://github.com/rehydra-ai/rehydra-sdk/issues/72)) ([9a48039](https://github.com/rehydra-ai/rehydra-sdk/commit/9a48039870e6fd323c9e35c0cddefed1383c5eec)), closes [#71](https://github.com/rehydra-ai/rehydra-sdk/issues/71)
+
 ## [0.10.2](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.1...v0.10.2) (2026-04-07)
 
 
