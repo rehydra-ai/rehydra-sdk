@@ -28,6 +28,19 @@ function stripResponseHeaders(headers: Headers): Headers {
   return cleaned;
 }
 
+/**
+ * Returns the length of the longest proper prefix of `tagPrefix` that `text`
+ * ends with, or 0 if none. Used to hold back a partially-streamed tag prefix
+ * (e.g. a chunk ending in `"<P"` or `"<PI"`) so it isn't forwarded raw before
+ * the rest of the `<PII.../>` tag arrives in a later SSE chunk.
+ */
+function trailingPartialTagPrefixLen(text: string, tagPrefix: string): number {
+  for (let n = tagPrefix.length - 1; n >= 1; n--) {
+    if (text.endsWith(tagPrefix.slice(0, n))) return n;
+  }
+  return 0;
+}
+
 let sessionCounter = 0;
 
 function defaultGetSessionId(): string {
@@ -563,8 +576,9 @@ function rehydrateSSEResponse(
             textToRehydrate = fullText.slice(0, incompleteTagIdx);
             tagBuffer = fullText.slice(incompleteTagIdx);
           } else {
-            textToRehydrate = fullText;
-            tagBuffer = "";
+            const partialLen = trailingPartialTagPrefixLen(fullText, tagPrefix);
+            textToRehydrate = fullText.slice(0, fullText.length - partialLen);
+            tagBuffer = fullText.slice(fullText.length - partialLen);
           }
 
           if (textToRehydrate.length > 0) {
@@ -600,8 +614,15 @@ function rehydrateSSEResponse(
                 textToRehydrate = fullText.slice(0, incompleteTagIdx);
                 toolCallBuffers.set(td.index, fullText.slice(incompleteTagIdx));
               } else {
-                textToRehydrate = fullText;
-                toolCallBuffers.set(td.index, "");
+                const partialLen = trailingPartialTagPrefixLen(
+                  fullText,
+                  tagPrefix,
+                );
+                textToRehydrate = fullText.slice(0, fullText.length - partialLen);
+                toolCallBuffers.set(
+                  td.index,
+                  fullText.slice(fullText.length - partialLen),
+                );
               }
 
               if (textToRehydrate.length > 0) {
