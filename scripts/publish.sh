@@ -66,7 +66,7 @@ npx vitest run
 # Publish SDK
 echo "==> Publishing rehydra@$SDK_VERSION..."
 cd "$ROOT"
-npm publish "${PUBLISH_FLAGS[@]}"
+npm publish ${PUBLISH_FLAGS[@]+"${PUBLISH_FLAGS[@]}"}
 
 # Sync CLI dependency version to the just-published SDK version
 echo "==> Syncing @rehydra/cli dependency to rehydra@^$SDK_VERSION..."
@@ -80,7 +80,7 @@ fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 
 # Publish CLI
 echo "==> Publishing @rehydra/cli@$CLI_VERSION..."
-npm publish --access public "${PUBLISH_FLAGS[@]}"
+npm publish --access public ${PUBLISH_FLAGS[@]+"${PUBLISH_FLAGS[@]}"}
 
 # Sync plugin dependency version to the just-published SDK version
 echo "==> Syncing @rehydra/opencode dependency to rehydra@^$SDK_VERSION..."
@@ -94,7 +94,7 @@ fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 
 # Publish plugin
 echo "==> Publishing @rehydra/opencode@$PLUGIN_VERSION..."
-npm publish --access public "${PUBLISH_FLAGS[@]}"
+npm publish --access public ${PUBLISH_FLAGS[@]+"${PUBLISH_FLAGS[@]}"}
 
 echo ""
 echo "==> Done! Published:"
