@@ -398,6 +398,64 @@ describe("proxy command", () => {
     });
   });
 
+  // --- Verbose logging ---
+
+  describe("verbose logging", () => {
+    it("should wire onAnonymize into config when --verbose is set", async () => {
+      const exitCode = await startAndShutdown("openai", makeOptions({ verbose: true, quiet: false }));
+      expect(exitCode).toBe(0);
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+      expect(typeof config.onAnonymize).toBe("function");
+    });
+
+    it("should not set onAnonymize when --verbose is absent", async () => {
+      const exitCode = await startAndShutdown("openai", makeOptions({ verbose: false, quiet: false }));
+      expect(exitCode).toBe(0);
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+      expect(config.onAnonymize).toBeUndefined();
+    });
+
+    it("should not set onAnonymize when quiet (even with --verbose)", async () => {
+      const exitCode = await startAndShutdown("openai", makeOptions({ verbose: true, quiet: true }));
+      expect(exitCode).toBe(0);
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+      expect(config.onAnonymize).toBeUndefined();
+    });
+
+    it("should log detected PII types and counts to stderr", async () => {
+      const exitCode = await startAndShutdown("openai", makeOptions({ verbose: true, quiet: false }));
+      expect(exitCode).toBe(0);
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+
+      config.onAnonymize!({
+        method: "POST",
+        url: "http://127.0.0.1:8787/v1/chat/completions",
+        countsByType: { EMAIL: 1, PERSON: 2 },
+        totalEntities: 3,
+      });
+
+      const output = stderrChunks.join("");
+      expect(output).toContain("POST");
+      expect(output).toContain("/v1/chat/completions");
+      expect(output).toContain("anonymized 1 EMAIL, 2 PERSON");
+    });
+
+    it("should log 'no PII detected' when nothing was anonymized", async () => {
+      const exitCode = await startAndShutdown("openai", makeOptions({ verbose: true, quiet: false }));
+      expect(exitCode).toBe(0);
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+
+      config.onAnonymize!({
+        method: "POST",
+        url: "http://127.0.0.1:8787/v1/chat/completions",
+        countsByType: {},
+        totalEntities: 0,
+      });
+
+      expect(stderrChunks.join("")).toContain("no PII detected");
+    });
+  });
+
   // --- NER background loading ---
 
   describe("NER background loading", () => {

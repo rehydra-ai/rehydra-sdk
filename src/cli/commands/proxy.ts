@@ -18,7 +18,7 @@ import {
   incomingMessageToRequest,
   writeResponse,
 } from "../../proxy/index.js";
-import type { RehydraProxyConfig } from "../../proxy/types.js";
+import type { RehydraProxyConfig, AnonymizeInfo } from "../../proxy/types.js";
 import type { ParsedOptions } from "../main.js";
 import { CLIError } from "../utils/errors.js";
 import { bold, dim, cyan, green, yellow } from "../utils/color.js";
@@ -159,6 +159,14 @@ export async function proxyCommand(
     policy,
     locale: options.locale,
     apiKey: llmApiKey,
+    // With --verbose, log per-request anonymization to stderr (never raw PII)
+    ...(options.verbose && !options.quiet
+      ? {
+          onAnonymize: (info: AnonymizeInfo): void => {
+            process.stderr.write(formatAnonymizeLog(info));
+          },
+        }
+      : {}),
   };
 
   // Start with regex-only proxy (instant startup)
@@ -314,6 +322,31 @@ async function loadNerAndSwap(
 }
 
 // --- helpers ---
+
+/**
+ * Format a one-line stderr log for a single intercepted request, e.g.
+ *   POST /v1/chat/completions → anonymized 1 EMAIL, 1 PERSON
+ * Reports types and counts only — never the raw PII values.
+ */
+function formatAnonymizeLog(info: AnonymizeInfo): string {
+  let path: string;
+  try {
+    path = new URL(info.url).pathname;
+  } catch {
+    path = info.url;
+  }
+
+  const prefix = `  ${cyan(info.method)} ${path} ${dim("→")} `;
+
+  if (info.totalEntities === 0) {
+    return prefix + dim("no PII detected") + "\n";
+  }
+
+  const parts = Object.entries(info.countsByType)
+    .map(([type, count]) => `${count} ${type}`)
+    .join(", ");
+  return prefix + green(`anonymized ${parts}`) + "\n";
+}
 
 function validateNerMode(mode: string): NERConfig["mode"] {
   const valid = ["disabled", "quantized", "standard"];

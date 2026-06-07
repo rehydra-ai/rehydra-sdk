@@ -163,6 +163,8 @@ export function createRehydraFetch(
       const texts = provider.extractRequestText(body);
       const anonymizedTexts: string[] = [];
       let piiDetected = false;
+      const countsByType: Record<string, number> = {};
+      let totalEntities = 0;
 
       for (let i = 0; i < texts.length; i++) {
         const result = await session.anonymize(
@@ -174,6 +176,22 @@ export function createRehydraFetch(
         if (result.anonymizedText !== texts[i]) {
           piiDetected = true;
         }
+        for (const [type, count] of Object.entries(result.stats.countsByType)) {
+          if (count > 0) {
+            countsByType[type] = (countsByType[type] ?? 0) + count;
+            totalEntities += count;
+          }
+        }
+      }
+
+      // Report what was anonymized (types and counts only — never raw PII)
+      if (config.onAnonymize !== undefined) {
+        config.onAnonymize({
+          method: request.method,
+          url: request.url,
+          countsByType,
+          totalEntities,
+        });
       }
 
       // Rebuild the request body with anonymized text
