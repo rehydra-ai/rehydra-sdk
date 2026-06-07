@@ -235,6 +235,86 @@ describe("createRehydraFetch", () => {
     expect(exists).toBe(true);
   });
 
+  describe("onAnonymize hook", () => {
+    it("reports detected PII types and counts (never raw values)", async () => {
+      mockServer = await createMockLLMServer();
+      const { port } = mockServer;
+
+      const calls: any[] = [];
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+        getSessionId: async () => "hook-test",
+        onAnonymize: (info) => calls.push(info),
+      });
+
+      await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "test",
+          messages: [
+            { role: "user", content: "Email john@example.com and jane@example.com" },
+          ],
+        }),
+      });
+
+      expect(calls).toHaveLength(1);
+      const info = calls[0];
+      expect(info.method).toBe("POST");
+      expect(info.url).toContain("/v1/chat/completions");
+      expect(info.countsByType.EMAIL).toBe(2);
+      expect(info.totalEntities).toBe(2);
+      // The hook must never receive the raw PII values
+      expect(JSON.stringify(info)).not.toContain("john@example.com");
+    });
+
+    it("fires with zero counts when no PII is present", async () => {
+      mockServer = await createMockLLMServer();
+      const { port } = mockServer;
+
+      const calls: any[] = [];
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+        getSessionId: async () => "hook-empty-test",
+        onAnonymize: (info) => calls.push(info),
+      });
+
+      await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "test",
+          messages: [{ role: "user", content: "Hello world" }],
+        }),
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].totalEntities).toBe(0);
+      expect(calls[0].countsByType).toEqual({});
+    });
+
+    it("does not fire for non-POST requests", async () => {
+      mockServer = await createMockLLMServer();
+      const { port } = mockServer;
+
+      const calls: any[] = [];
+      const rehydraFetch = createRehydraFetch({
+        keyProvider: new InMemoryKeyProvider(),
+        piiStorageProvider: new InMemoryPIIStorageProvider(),
+        provider: "openai",
+        onAnonymize: (info) => calls.push(info),
+      });
+
+      await rehydraFetch(`http://127.0.0.1:${port}/health`, { method: "GET" });
+
+      expect(calls).toHaveLength(0);
+    });
+  });
+
   describe("error handling", () => {
     it("should return 400 for malformed request body", async () => {
       const rehydraFetch = createRehydraFetch({

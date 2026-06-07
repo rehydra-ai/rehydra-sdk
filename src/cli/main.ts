@@ -87,6 +87,9 @@ ${bold("EXAMPLES")}
   rehydra proxy claude
   ${dim("# then: export ANTHROPIC_BASE_URL=http://127.0.0.1:8787")}
 
+  ${dim("# Start a proxy and log what PII is anonymized per request")}
+  rehydra proxy openai --verbose
+
 ${bold("EXIT CODES")}
   0  Success
   1  Error

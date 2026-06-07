@@ -24,6 +24,23 @@ export type OnToolCallFn = (
 ) => unknown;
 
 /**
+ * Summary of what an intercepted request anonymized. Passed to the
+ * {@link RehydraFetchConfig.onAnonymize} hook for logging/observability.
+ *
+ * Contains only PII *types* and counts — never the raw PII values.
+ */
+export interface AnonymizeInfo {
+  /** HTTP method of the intercepted request (always "POST" in practice) */
+  method: string;
+  /** Upstream request URL */
+  url: string;
+  /** Detected entity count per PII type (only types with count > 0) */
+  countsByType: Record<string, number>;
+  /** Total entities detected across the whole request */
+  totalEntities: number;
+}
+
+/**
  * Configuration for the Rehydra fetch wrapper
  */
 export interface RehydraFetchConfig {
@@ -87,6 +104,14 @@ export interface RehydraFetchConfig {
    * @default 10
    */
   maxToolRounds?: number;
+
+  /**
+   * Hook invoked once per intercepted request, after anonymization and
+   * before forwarding upstream. Receives a summary of detected PII
+   * (types and counts only — never the raw values). Useful for verbose
+   * logging and observability.
+   */
+  onAnonymize?: (info: AnonymizeInfo) => void;
 }
 
 /**
