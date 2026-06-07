@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.4](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.3...v0.10.4) (2026-06-07)
+
+
+### Bug Fixes
+
+* guard PUBLISH_FLAGS expansion against unbound variable on empty array ([#75](https://github.com/rehydra-ai/rehydra-sdk/issues/75)) ([d34b6ba](https://github.com/rehydra-ai/rehydra-sdk/commit/d34b6ba5f08d0697907178a80f4f94513cee71dd))
+
 ## [0.10.3](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.2...v0.10.3) (2026-06-01)
 
 
