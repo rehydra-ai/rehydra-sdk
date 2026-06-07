@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.4...v0.11.0) (2026-06-07)
+
+
+### Features
+
+* **proxy:** log per-request anonymization with --verbose ([#78](https://github.com/rehydra-ai/rehydra-sdk/issues/78)) ([466be42](https://github.com/rehydra-ai/rehydra-sdk/commit/466be42389e826a7db4b24ac995e4380f4491cba)), closes [#76](https://github.com/rehydra-ai/rehydra-sdk/issues/76)
+
 ## [0.10.4](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.3...v0.10.4) (2026-06-07)
 
 
