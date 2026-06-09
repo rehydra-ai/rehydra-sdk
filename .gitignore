@@ -48,3 +48,6 @@ rehydra-sidecar/
 # Claude Code
 CLAUDE.md
 .claude/
+
+# Outreach materials (not part of the SDK)
+outreach/
