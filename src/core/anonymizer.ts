@@ -31,13 +31,13 @@ import {
   NERModelStub,
   createNERModel,
   createInferenceServerNERModel,
-  DEFAULT_LABEL_MAP,
   type OrtSessionOptions,
 } from "../ner/index.js";
 
 import {
   type NERModelMode,
   ensureModel,
+  loadLabelMap,
   type DownloadProgressCallback,
 } from "../ner/model-manager.js";
 
@@ -454,15 +454,9 @@ export class Anonymizer {
         }
       );
 
-      // Load label map
-      let labelMap = DEFAULT_LABEL_MAP;
-      try {
-        const storage = await getStorageProvider();
-        const labelMapContent = await storage.readTextFile(labelMapPath);
-        labelMap = JSON.parse(labelMapContent) as string[];
-      } catch {
-        // Use default label map
-      }
+      // Load label map (falls back to the registry map for this mode, which
+      // matches the model head — never a generic default)
+      const labelMap = await loadLabelMap(this.nerConfig.mode, labelMapPath);
 
       this.nerModel = createNERModel({
         modelPath,

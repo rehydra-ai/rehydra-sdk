@@ -404,6 +404,38 @@ export async function ensureModel(
 }
 
 /**
+ * Loads the label map for a registry model, preferring the label_map.json
+ * persisted by ensureModel and falling back to the registry's map for the
+ * mode. The registry is authoritative — it is the source ensureModel writes
+ * to the file — so a missing or corrupted file never changes the decoded
+ * label order (a mismatched map silently misclassifies every NER entity).
+ */
+export async function loadLabelMap(
+  mode: "standard" | "quantized",
+  labelMapPath: string
+): Promise<string[]> {
+  const registryLabelMap = MODEL_REGISTRY[mode].labelMap;
+
+  try {
+    const storage = await getStorage();
+    const content = await storage.readTextFile(labelMapPath);
+    const parsed: unknown = JSON.parse(content);
+
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every((label) => typeof label === "string")
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to registry map
+  }
+
+  return registryLabelMap;
+}
+
+/**
  * Clears cached models
  */
 export async function clearModelCache(
