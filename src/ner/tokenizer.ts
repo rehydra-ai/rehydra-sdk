@@ -210,7 +210,7 @@ export class WordPieceTokenizer {
     const content = this.tokenizeContent(text);
 
     // Truncate if necessary (maxLength includes CLS and SEP)
-    const maxContent = this.config.maxLength - 2;
+    const maxContent = Math.max(0, this.config.maxLength - 2);
     const truncated =
       content.length > maxContent ? content.slice(0, maxContent) : content;
 
@@ -229,7 +229,9 @@ export class WordPieceTokenizer {
     overlap: number = DEFAULT_WINDOW_OVERLAP
   ): TokenizationWindow[] {
     const content = this.tokenizeContent(text);
-    const windowSize = this.config.maxLength - 2;
+    // Clamp to >= 1 so a degenerate maxLength (< 3) cannot produce a
+    // zero-token window and a non-advancing stride below
+    const windowSize = Math.max(1, this.config.maxLength - 2);
 
     // Short input: single window, identical to tokenize()
     if (content.length <= windowSize) {

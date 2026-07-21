@@ -212,6 +212,67 @@ describe("WordPieceTokenizer", () => {
       expect(covered).toEqual(reference);
     });
 
+    it("should terminate and cover all tokens for degenerate maxLength", () => {
+      // maxLength <= 2 leaves no room for content tokens; must not hang
+      const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 2 });
+      const text = "hello world hello world";
+
+      const windows = tokenizer.tokenizeWindows(text);
+
+      const covered = windows.flatMap((w) =>
+        w.tokens.filter(
+          (t) =>
+            !t.isSpecial &&
+            t.start >= w.coreCharStart &&
+            t.start < w.coreCharEnd
+        )
+      );
+      expect(covered.length).toBe(4);
+    });
+
+    it("should cover continuation tokens exactly once when windows split mid-word", () => {
+      // 'abcd' tokenizes as ▁ab + cd, so window and core boundaries can
+      // fall inside a word — the normal case with a real subword vocab
+      const subwordVocab = new Map<string, number>([
+        ["[UNK]", 0],
+        ["[CLS]", 1],
+        ["[SEP]", 2],
+        ["[PAD]", 3],
+        ["▁ab", 4],
+        ["cd", 5],
+      ]);
+      const tokenizer = new WordPieceTokenizer(subwordVocab, {
+        maxLength: 13,
+      });
+      const text = "abcd ".repeat(40).trim(); // 80 tokens
+
+      const reference = new WordPieceTokenizer(subwordVocab, {
+        maxLength: 100000,
+      })
+        .tokenize(text)
+        .tokens.filter((t) => !t.isSpecial)
+        .map((t) => [t.start, t.end, t.isContinuation]);
+
+      const windows = tokenizer.tokenizeWindows(text, 4);
+      const covered = windows.flatMap((w) =>
+        w.tokens
+          .filter(
+            (t) =>
+              !t.isSpecial &&
+              t.start >= w.coreCharStart &&
+              t.start < w.coreCharEnd
+          )
+          .map((t) => [t.start, t.end, t.isContinuation])
+      );
+
+      expect(covered).toEqual(reference);
+
+      // The scenario must actually occur: some window starts mid-word
+      expect(
+        windows.some((w) => w.tokens[1]?.isContinuation === true)
+      ).toBe(true);
+    });
+
     it("should include tokens past the single-window truncation point", () => {
       const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 12 });
       const text = "hello world ".repeat(20) + "john smith";

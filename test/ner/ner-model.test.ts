@@ -14,6 +14,7 @@ import {
   ensureModel,
   MODEL_REGISTRY,
 } from '../../src/ner/model-manager.js';
+import { WordPieceTokenizer } from '../../src/ner/tokenizer.js';
 import { createDefaultPolicy, PIIType } from '../../src/index.js';
 
 describe('NER Model', () => {
@@ -391,6 +392,113 @@ describe('NER Model', () => {
       const result = await isModelDownloaded('quantized');
       expect(typeof result).toBe('boolean');
     });
+  });
+});
+
+describe('windowed inference (stubbed session)', () => {
+  // Runs in CI: exercises the real predict() path — window loop, core
+  // anchoring, cross-window reconciliation — with a fake ONNX session that
+  // deterministically tags 'john' as B-PER and 'smith' as I-PER
+  const labelMap = ['O', 'B-PER', 'I-PER'];
+  const vocab = new Map<string, number>([
+    ['[UNK]', 0],
+    ['[CLS]', 1],
+    ['[SEP]', 2],
+    ['[PAD]', 3],
+    ['▁filler', 4],
+    ['▁john', 5],
+    ['▁smith', 6],
+  ]);
+  const JOHN_ID = 5n;
+  const SMITH_ID = 6n;
+
+  class FakeTensor {
+    constructor(
+      public type: string,
+      public data: unknown,
+      public dims: number[]
+    ) {}
+  }
+
+  const fakeSession = {
+    inputNames: ['input_ids', 'attention_mask'] as readonly string[],
+    outputNames: ['logits'] as readonly string[],
+    run(
+      feeds: Record<string, FakeTensor>
+    ): Promise<Record<string, { data: Float32Array }>> {
+      const ids = feeds['input_ids']!.data as BigInt64Array;
+      const logits = new Float32Array(ids.length * labelMap.length);
+      for (let i = 0; i < ids.length; i++) {
+        const labelIdx = ids[i] === JOHN_ID ? 1 : ids[i] === SMITH_ID ? 2 : 0;
+        logits[i * labelMap.length + labelIdx] = 10;
+      }
+      return Promise.resolve({ logits: { data: logits } });
+    },
+  };
+
+  function createStubbedModel(maxLength: number): INERModel {
+    const model = createNERModel({
+      modelPath: 'stub',
+      vocabPath: 'stub',
+      labelMap,
+      maxLength,
+      modelVersion: 'stub',
+    });
+    const internals = model as unknown as Record<string, unknown>;
+    internals['ort'] = { Tensor: FakeTensor };
+    internals['session'] = fakeSession;
+    internals['tokenizer'] = new WordPieceTokenizer(vocab, { maxLength });
+    internals['isLoaded'] = true;
+    return model;
+  }
+
+  it('should emit a boundary-straddling entity exactly once at every position', async () => {
+    // maxLength 12 -> 10 content tokens per window; sweeping the name one
+    // token at a time crosses every window/core boundary alignment
+    const model = createStubbedModel(12);
+
+    for (let before = 0; before <= 30; before++) {
+      const text =
+        'filler '.repeat(before) + 'john smith ' + 'filler '.repeat(10);
+      const nameStart = text.indexOf('john');
+      const nameEnd = nameStart + 'john smith'.length;
+
+      const result = await model.predict(text);
+      const personSpans = result.spans.filter(
+        (s) => s.type === PIIType.PERSON
+      );
+
+      expect(personSpans.length, `position ${before}`).toBe(1);
+      expect(personSpans[0]!.start, `position ${before}`).toBe(nameStart);
+      expect(personSpans[0]!.end, `position ${before}`).toBe(nameEnd);
+      expect(personSpans[0]!.text, `position ${before}`).toBe('john smith');
+    }
+  });
+
+  it('should detect all entities in a multi-window input', async () => {
+    const model = createStubbedModel(12);
+    const text =
+      'john smith ' +
+      'filler '.repeat(15) +
+      'john smith ' +
+      'filler '.repeat(15) +
+      'john smith';
+
+    const result = await model.predict(text);
+    const personSpans = result.spans.filter((s) => s.type === PIIType.PERSON);
+
+    expect(personSpans.length).toBe(3);
+    for (const span of personSpans) {
+      expect(span.text).toBe('john smith');
+    }
+  });
+
+  it('should match single-window behavior for short inputs', async () => {
+    const model = createStubbedModel(512);
+    const result = await model.predict('filler john smith filler');
+
+    expect(result.spans.length).toBe(1);
+    expect(result.spans[0]!.text).toBe('john smith');
   });
 });
 

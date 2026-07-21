@@ -431,6 +431,21 @@ describe('BIO Decoder', () => {
       expect(merged[0]!.confidence).toBe(0.875); // Average
     });
 
+    it('should not shrink a span when merging a contained same-type span', () => {
+      const text = 'John Smith Meyer here';
+      const spans: SpanMatch[] = [
+        { type: PIIType.PERSON, start: 0, end: 16, confidence: 0.9, source: DetectionSource.NER, text: 'John Smith Meyer' },
+        { type: PIIType.PERSON, start: 5, end: 10, confidence: 0.8, source: DetectionSource.NER, text: 'Smith' },
+      ];
+
+      const merged = mergeAdjacentSpans(spans, text);
+
+      expect(merged).toHaveLength(1);
+      expect(merged[0]!.start).toBe(0);
+      expect(merged[0]!.end).toBe(16);
+      expect(merged[0]!.text).toBe('John Smith Meyer');
+    });
+
     it('should not merge spans of different types', () => {
       const text = 'John Berlin';
       const spans: SpanMatch[] = [

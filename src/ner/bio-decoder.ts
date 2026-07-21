@@ -272,11 +272,13 @@ export function mergeAdjacentSpans(
     const isOnlyWhitespace = /^\s*$/.test(gapText);
 
     if (next.type === current.type && gap <= maxGap && isOnlyWhitespace) {
-      // Merge spans
+      // Merge spans; max() so a span contained in the current one
+      // (possible with overlapping inputs) can never shrink the result
+      const mergedEnd = Math.max(current.end, next.end);
       current = {
         ...current,
-        end: next.end,
-        text: originalText.slice(current.start, next.end),
+        end: mergedEnd,
+        text: originalText.slice(current.start, mergedEnd),
         confidence: (current.confidence + next.confidence) / 2,
       };
     } else {
