@@ -171,7 +171,8 @@ export class NERModel {
   }
 
   /**
-   * Runs a single NER pass: tokenize, infer, decode BIO tags.
+   * Runs a full NER pass: tokenize into overlapping windows, infer per
+   * window, decode BIO tags, and reconcile window results.
    * @param inputText - Text to tokenize and feed to the model
    * @param originalText - Original text used for extracting entity text (may differ in casing)
    */
@@ -180,23 +181,41 @@ export class NERModel {
     originalText: string,
     minConfidence: number
   ): Promise<SpanMatch[]> {
-    // Tokenize the input text (may be case-modified)
-    const tokenization = this.tokenizer!.tokenize(inputText);
+    // Tokenize into overlapping model-sized windows so inputs longer than
+    // maxLength tokens are fully processed instead of silently truncated
+    const windows = this.tokenizer!.tokenizeWindows(inputText);
 
-    // Run inference
-    const { labels, confidences } = await this.runInference(tokenization);
+    const spans: SpanMatch[] = [];
+    for (const window of windows) {
+      // Run inference
+      const { labels, confidences } = await this.runInference(window);
 
-    // Decode BIO tags using original text for entity text extraction
-    // (offsets are identical since casing doesn't change string length)
-    const rawEntities = decodeBIOTags(
-      tokenization.tokens,
-      labels,
-      confidences,
-      originalText
-    );
+      // Decode BIO tags using original text for entity text extraction
+      // (offsets are identical since casing doesn't change string length)
+      const rawEntities = decodeBIOTags(
+        window.tokens,
+        labels,
+        confidences,
+        originalText
+      );
 
-    // Convert to SpanMatch format with confidence filtering
-    return convertToSpanMatches(rawEntities, minConfidence);
+      // Keep entities that overlap this window's core range. Overlap
+      // (rather than strict start-anchoring) tolerates adjacent windows
+      // decoding slightly different boundaries for the same entity near a
+      // core boundary — otherwise both windows could reject it and the
+      // entity would be dropped entirely
+      const anchored = rawEntities.filter(
+        (e) => e.end > window.coreCharStart && e.start < window.coreCharEnd
+      );
+
+      // Convert to SpanMatch format with confidence filtering
+      spans.push(...convertToSpanMatches(anchored, minConfidence));
+    }
+
+    // An entity straddling a core boundary can be kept by both adjacent
+    // windows; union overlapping same-type spans so it is reported once
+    // with its full detected extent
+    return mergeOverlappingWindowSpans(spans, originalText);
   }
 
   /**
@@ -412,6 +431,39 @@ export class NERModel {
     this.isLoaded = false;
     return Promise.resolve();
   }
+}
+
+/**
+ * Merges overlapping same-type spans collected from adjacent windows into
+ * their union. Windows can disagree on the exact boundaries of an entity
+ * near a core boundary; keeping the union guarantees no part of a detected
+ * entity is left unmasked.
+ */
+function mergeOverlappingWindowSpans(
+  spans: SpanMatch[],
+  originalText: string
+): SpanMatch[] {
+  if (spans.length <= 1) return spans;
+
+  const sorted = [...spans].sort((a, b) => a.start - b.start || b.end - a.end);
+  const merged: SpanMatch[] = [{ ...sorted[0]! }];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const span = sorted[i]!;
+    const last = merged[merged.length - 1]!;
+
+    if (span.type === last.type && span.start < last.end) {
+      if (span.end > last.end) {
+        last.end = span.end;
+        last.text = originalText.slice(last.start, last.end);
+      }
+      last.confidence = Math.max(last.confidence, span.confidence);
+    } else {
+      merged.push({ ...span });
+    }
+  }
+
+  return merged;
 }
 
 /**
