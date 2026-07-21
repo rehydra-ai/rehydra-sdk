@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.11.0...v0.11.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* fall back to registry label map instead of mismatched default ([#86](https://github.com/rehydra-ai/rehydra-sdk/issues/86)) ([3edb6b0](https://github.com/rehydra-ai/rehydra-sdk/commit/3edb6b0842c3efdc9d19f23e2da3788d659ea034)), closes [#85](https://github.com/rehydra-ai/rehydra-sdk/issues/85)
+* process long inputs in overlapping NER windows instead of truncating ([#83](https://github.com/rehydra-ai/rehydra-sdk/issues/83)) ([d458f17](https://github.com/rehydra-ai/rehydra-sdk/commit/d458f1753a4d7fbb2eada2a33dbb0532855fd524))
+
 ## [0.11.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.10.4...v0.11.0) (2026-06-07)
 
 
