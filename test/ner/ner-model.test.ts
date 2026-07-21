@@ -145,6 +145,43 @@ describe('NER Model', () => {
         expect(types.has(PIIType.PERSON)).toBe(true);
       });
 
+      it('should detect entities beyond the 512-token window (issue #82)', async () => {
+        if (isCI || !modelAvailable) return;
+        // Filler pushes "John Smith" far past the model's single-window
+        // token limit; before windowing this leaked undetected
+        const text =
+          'This is neutral filler text. '.repeat(300) +
+          'Meeting with John Smith tomorrow.';
+        const nameOffset = text.indexOf('John Smith');
+
+        const result = await model!.predict(text);
+
+        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
+        const johnSmith = personSpans.find(
+          s => s.start >= nameOffset && s.end <= nameOffset + 'John Smith'.length
+        );
+        expect(johnSmith).toBeDefined();
+        expect(johnSmith!.text).toContain('John');
+      }, 120000);
+
+      it('should detect entities in the middle of a long input', async () => {
+        if (isCI || !modelAvailable) return;
+        const filler = 'This is neutral filler text. ';
+        const text =
+          filler.repeat(150) +
+          'Please contact Maria Gonzalez in Barcelona. ' +
+          filler.repeat(150);
+        const nameOffset = text.indexOf('Maria Gonzalez');
+
+        const result = await model!.predict(text);
+
+        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
+        const maria = personSpans.find(
+          s => s.start >= nameOffset && s.start < nameOffset + 'Maria'.length
+        );
+        expect(maria).toBeDefined();
+      }, 120000);
+
       it('should handle text without entities', async () => {
         if (isCI || !modelAvailable) return;
         const result = await model!.predict('The weather is nice today.');

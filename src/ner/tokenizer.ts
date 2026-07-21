@@ -39,6 +39,28 @@ export interface TokenizationResult {
 }
 
 /**
+ * A model-sized window over the full token stream of a long input.
+ * Consecutive windows overlap so entities near a window boundary are seen
+ * with full context by at least one window. The core range delimits the
+ * characters this window is authoritative for: cores tile the input exactly,
+ * so an entity anchored (by start offset) in a core belongs to exactly one
+ * window and cross-window duplicates cannot occur.
+ */
+export interface TokenizationWindow extends TokenizationResult {
+  /** Start character offset (inclusive) of this window's core range */
+  coreCharStart: number;
+  /** End character offset (exclusive) of this window's core range */
+  coreCharEnd: number;
+}
+
+/**
+ * Default token overlap between consecutive windows.
+ * Entities up to half this length are guaranteed to fit entirely inside
+ * the window that owns them.
+ */
+export const DEFAULT_WINDOW_OVERLAP = 128;
+
+/**
  * HuggingFace tokenizer.json structure
  */
 interface HFTokenizerConfig {
@@ -180,22 +202,98 @@ export class WordPieceTokenizer {
   }
 
   /**
-   * Tokenizes text into tokens with offset tracking
+   * Tokenizes text into tokens with offset tracking.
+   * Truncates to maxLength tokens — use tokenizeWindows() for inputs that
+   * may exceed the model's sequence length.
    */
   tokenize(text: string): TokenizationResult {
-    const tokens: Token[] = [];
-    const tokenToCharSpan: Array<[number, number] | null> = [];
+    const content = this.tokenizeContent(text);
 
-    // Add CLS token
-    tokens.push({
-      id: this.clsId,
-      token: this.clsToken,
-      start: 0,
-      end: 0,
-      isContinuation: false,
-      isSpecial: true,
-    });
-    tokenToCharSpan.push(null);
+    // Truncate if necessary (maxLength includes CLS and SEP)
+    const maxContent = this.config.maxLength - 2;
+    const truncated =
+      content.length > maxContent ? content.slice(0, maxContent) : content;
+
+    return this.buildResult(truncated, text);
+  }
+
+  /**
+   * Tokenizes text into overlapping model-sized windows covering the full
+   * input, so no tokens are silently dropped for long texts.
+   * Each window carries a core character range; together the cores tile the
+   * input exactly. Callers should keep an entity only from the window whose
+   * core contains the entity's start offset.
+   */
+  tokenizeWindows(
+    text: string,
+    overlap: number = DEFAULT_WINDOW_OVERLAP
+  ): TokenizationWindow[] {
+    const content = this.tokenizeContent(text);
+    const windowSize = this.config.maxLength - 2;
+
+    // Short input: single window, identical to tokenize()
+    if (content.length <= windowSize) {
+      return [
+        {
+          ...this.buildResult(content, text),
+          coreCharStart: 0,
+          coreCharEnd: text.length,
+        },
+      ];
+    }
+
+    // Clamp overlap so the stride stays positive
+    const effectiveOverlap = Math.min(
+      Math.max(overlap, 0),
+      Math.floor(windowSize / 2)
+    );
+    const stride = windowSize - effectiveOverlap;
+
+    // Window start indices; the last window is right-aligned so it always
+    // ends exactly at the end of the token stream
+    const starts: number[] = [];
+    for (let s = 0; ; s += stride) {
+      if (s + windowSize >= content.length) {
+        starts.push(content.length - windowSize);
+        break;
+      }
+      starts.push(s);
+    }
+
+    const windows: TokenizationWindow[] = [];
+    for (let i = 0; i < starts.length; i++) {
+      const start = starts[i]!;
+      const end = start + windowSize;
+
+      // Core boundaries sit at the midpoint of each overlap region, so
+      // consecutive cores meet exactly and every token start is owned by
+      // precisely one window
+      const coreTokenStart =
+        i === 0 ? 0 : Math.floor((start + starts[i - 1]! + windowSize) / 2);
+      const coreTokenEnd =
+        i === starts.length - 1
+          ? content.length
+          : Math.floor((starts[i + 1]! + end) / 2);
+
+      windows.push({
+        ...this.buildResult(content.slice(start, end), text),
+        coreCharStart: i === 0 ? 0 : content[coreTokenStart]!.start,
+        coreCharEnd:
+          coreTokenEnd >= content.length
+            ? text.length
+            : content[coreTokenEnd]!.start,
+      });
+    }
+
+    return windows;
+  }
+
+  /**
+   * Tokenizes text into content tokens (no special tokens, no truncation)
+   * using greedy longest-match with character offset tracking
+   */
+  private tokenizeContent(text: string): Token[] {
+    const tokens: Token[] = [];
 
     // Preprocess text
     const processedText = this.config.doLowerCase ? text.toLowerCase() : text;
@@ -211,9 +309,9 @@ export class WordPieceTokenizer {
 
       // Find the longest matching token starting at this position
       const { token, id, length } = this.findBestToken(processedText, pos);
-      
+
       const isFirstOfWord = pos === 0 || /\s/.test(processedText[pos - 1]!);
-      
+
       tokens.push({
         id,
         token,
@@ -222,48 +320,48 @@ export class WordPieceTokenizer {
         isContinuation: !isFirstOfWord && !token.startsWith('▁'),
         isSpecial: false,
       });
-      tokenToCharSpan.push([pos, pos + length]);
-      
+
       pos += length;
     }
 
-    // Add SEP token
-    tokens.push({
-      id: this.sepId,
-      token: this.sepToken,
-      start: text.length,
-      end: text.length,
-      isContinuation: false,
-      isSpecial: true,
-    });
-    tokenToCharSpan.push(null);
+    return tokens;
+  }
 
-    // Truncate if necessary
-    const maxTokens = this.config.maxLength;
-    if (tokens.length > maxTokens) {
-      tokens.length = maxTokens - 1;
-      tokenToCharSpan.length = maxTokens - 1;
-      tokens.push({
+  /**
+   * Wraps content tokens with CLS/SEP and builds the model input arrays
+   */
+  private buildResult(contentTokens: Token[], text: string): TokenizationResult {
+    const tokens: Token[] = [
+      {
+        id: this.clsId,
+        token: this.clsToken,
+        start: 0,
+        end: 0,
+        isContinuation: false,
+        isSpecial: true,
+      },
+      ...contentTokens,
+      {
         id: this.sepId,
         token: this.sepToken,
         start: text.length,
         end: text.length,
         isContinuation: false,
         isSpecial: true,
-      });
-      tokenToCharSpan.push(null);
-    }
+      },
+    ];
 
-    // Build arrays
-    const inputIds = tokens.map((t) => t.id);
-    const attentionMask = tokens.map(() => 1);
-    const tokenTypeIds = tokens.map(() => 0);
+    const tokenToCharSpan: Array<[number, number] | null> = [
+      null,
+      ...contentTokens.map((t): [number, number] => [t.start, t.end]),
+      null,
+    ];
 
     return {
       tokens,
-      inputIds,
-      attentionMask,
-      tokenTypeIds,
+      inputIds: tokens.map((t) => t.id),
+      attentionMask: tokens.map(() => 1),
+      tokenTypeIds: tokens.map(() => 0),
       tokenToCharSpan,
     };
   }

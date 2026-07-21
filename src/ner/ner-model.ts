@@ -171,7 +171,8 @@ export class NERModel {
   }
 
   /**
-   * Runs a single NER pass: tokenize, infer, decode BIO tags.
+   * Runs a full NER pass: tokenize into overlapping windows, infer per
+   * window, decode BIO tags, and reconcile window results.
    * @param inputText - Text to tokenize and feed to the model
    * @param originalText - Original text used for extracting entity text (may differ in casing)
    */
@@ -180,23 +181,36 @@ export class NERModel {
     originalText: string,
     minConfidence: number
   ): Promise<SpanMatch[]> {
-    // Tokenize the input text (may be case-modified)
-    const tokenization = this.tokenizer!.tokenize(inputText);
+    // Tokenize into overlapping model-sized windows so inputs longer than
+    // maxLength tokens are fully processed instead of silently truncated
+    const windows = this.tokenizer!.tokenizeWindows(inputText);
 
-    // Run inference
-    const { labels, confidences } = await this.runInference(tokenization);
+    const spans: SpanMatch[] = [];
+    for (const window of windows) {
+      // Run inference
+      const { labels, confidences } = await this.runInference(window);
 
-    // Decode BIO tags using original text for entity text extraction
-    // (offsets are identical since casing doesn't change string length)
-    const rawEntities = decodeBIOTags(
-      tokenization.tokens,
-      labels,
-      confidences,
-      originalText
-    );
+      // Decode BIO tags using original text for entity text extraction
+      // (offsets are identical since casing doesn't change string length)
+      const rawEntities = decodeBIOTags(
+        window.tokens,
+        labels,
+        confidences,
+        originalText
+      );
 
-    // Convert to SpanMatch format with confidence filtering
-    return convertToSpanMatches(rawEntities, minConfidence);
+      // Keep only entities anchored in this window's core range; the
+      // overlap margins are context for the model, and entities starting
+      // there belong to a neighboring window
+      const anchored = rawEntities.filter(
+        (e) => e.start >= window.coreCharStart && e.start < window.coreCharEnd
+      );
+
+      // Convert to SpanMatch format with confidence filtering
+      spans.push(...convertToSpanMatches(anchored, minConfidence));
+    }
+
+    return spans;
   }
 
   /**
