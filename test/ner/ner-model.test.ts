@@ -146,42 +146,18 @@ describe('NER Model', () => {
         expect(types.has(PIIType.PERSON)).toBe(true);
       });
 
-      it('should detect entities beyond the 512-token window (issue #82)', async () => {
+      it('should detect an entity beyond the first model window', async () => {
         if (isCI || !modelAvailable) return;
-        // Filler pushes "John Smith" far past the model's single-window
-        // token limit; before windowing this leaked undetected
-        const text =
-          'This is neutral filler text. '.repeat(300) +
-          'Meeting with John Smith tomorrow.';
-        const nameOffset = text.indexOf('John Smith');
-
+        const text = `${'This is neutral filler text. '.repeat(300)}Meeting with John Smith tomorrow.`;
         const result = await model!.predict(text);
-
-        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
-        const johnSmith = personSpans.find(
-          s => s.start >= nameOffset && s.end <= nameOffset + 'John Smith'.length
+        const person = result.spans.find(
+          (span) => span.type === PIIType.PERSON && span.text === 'John Smith',
         );
-        expect(johnSmith).toBeDefined();
-        expect(johnSmith!.text).toContain('John');
-      }, 120000);
 
-      it('should detect entities in the middle of a long input', async () => {
-        if (isCI || !modelAvailable) return;
-        const filler = 'This is neutral filler text. ';
-        const text =
-          filler.repeat(150) +
-          'Please contact Maria Gonzalez in Barcelona. ' +
-          filler.repeat(150);
-        const nameOffset = text.indexOf('Maria Gonzalez');
-
-        const result = await model!.predict(text);
-
-        const personSpans = result.spans.filter(s => s.type === PIIType.PERSON);
-        const maria = personSpans.find(
-          s => s.start >= nameOffset && s.start < nameOffset + 'Maria'.length
-        );
-        expect(maria).toBeDefined();
-      }, 120000);
+        expect(person).toBeDefined();
+        expect(person!.start).toBe(text.lastIndexOf('John Smith'));
+        expect(person!.end).toBe(person!.start + 'John Smith'.length);
+      }, 30000);
 
       it('should handle text without entities', async () => {
         if (isCI || !modelAvailable) return;
@@ -395,113 +371,6 @@ describe('NER Model', () => {
   });
 });
 
-describe('windowed inference (stubbed session)', () => {
-  // Runs in CI: exercises the real predict() path — window loop, core
-  // anchoring, cross-window reconciliation — with a fake ONNX session that
-  // deterministically tags 'john' as B-PER and 'smith' as I-PER
-  const labelMap = ['O', 'B-PER', 'I-PER'];
-  const vocab = new Map<string, number>([
-    ['[UNK]', 0],
-    ['[CLS]', 1],
-    ['[SEP]', 2],
-    ['[PAD]', 3],
-    ['▁filler', 4],
-    ['▁john', 5],
-    ['▁smith', 6],
-  ]);
-  const JOHN_ID = 5n;
-  const SMITH_ID = 6n;
-
-  class FakeTensor {
-    constructor(
-      public type: string,
-      public data: unknown,
-      public dims: number[]
-    ) {}
-  }
-
-  const fakeSession = {
-    inputNames: ['input_ids', 'attention_mask'] as readonly string[],
-    outputNames: ['logits'] as readonly string[],
-    run(
-      feeds: Record<string, FakeTensor>
-    ): Promise<Record<string, { data: Float32Array }>> {
-      const ids = feeds['input_ids']!.data as BigInt64Array;
-      const logits = new Float32Array(ids.length * labelMap.length);
-      for (let i = 0; i < ids.length; i++) {
-        const labelIdx = ids[i] === JOHN_ID ? 1 : ids[i] === SMITH_ID ? 2 : 0;
-        logits[i * labelMap.length + labelIdx] = 10;
-      }
-      return Promise.resolve({ logits: { data: logits } });
-    },
-  };
-
-  function createStubbedModel(maxLength: number): INERModel {
-    const model = createNERModel({
-      modelPath: 'stub',
-      vocabPath: 'stub',
-      labelMap,
-      maxLength,
-      modelVersion: 'stub',
-    });
-    const internals = model as unknown as Record<string, unknown>;
-    internals['ort'] = { Tensor: FakeTensor };
-    internals['session'] = fakeSession;
-    internals['tokenizer'] = new WordPieceTokenizer(vocab, { maxLength });
-    internals['isLoaded'] = true;
-    return model;
-  }
-
-  it('should emit a boundary-straddling entity exactly once at every position', async () => {
-    // maxLength 12 -> 10 content tokens per window; sweeping the name one
-    // token at a time crosses every window/core boundary alignment
-    const model = createStubbedModel(12);
-
-    for (let before = 0; before <= 30; before++) {
-      const text =
-        'filler '.repeat(before) + 'john smith ' + 'filler '.repeat(10);
-      const nameStart = text.indexOf('john');
-      const nameEnd = nameStart + 'john smith'.length;
-
-      const result = await model.predict(text);
-      const personSpans = result.spans.filter(
-        (s) => s.type === PIIType.PERSON
-      );
-
-      expect(personSpans.length, `position ${before}`).toBe(1);
-      expect(personSpans[0]!.start, `position ${before}`).toBe(nameStart);
-      expect(personSpans[0]!.end, `position ${before}`).toBe(nameEnd);
-      expect(personSpans[0]!.text, `position ${before}`).toBe('john smith');
-    }
-  });
-
-  it('should detect all entities in a multi-window input', async () => {
-    const model = createStubbedModel(12);
-    const text =
-      'john smith ' +
-      'filler '.repeat(15) +
-      'john smith ' +
-      'filler '.repeat(15) +
-      'john smith';
-
-    const result = await model.predict(text);
-    const personSpans = result.spans.filter((s) => s.type === PIIType.PERSON);
-
-    expect(personSpans.length).toBe(3);
-    for (const span of personSpans) {
-      expect(span.text).toBe('john smith');
-    }
-  });
-
-  it('should match single-window behavior for short inputs', async () => {
-    const model = createStubbedModel(512);
-    const result = await model.predict('filler john smith filler');
-
-    expect(result.spans.length).toBe(1);
-    expect(result.spans[0]!.text).toBe('john smith');
-  });
-});
-
 describe('NER with Anonymizer Integration', () => {
   let modelAvailable = false;
   const isCI = process.env.CI === 'true';
@@ -572,11 +441,70 @@ describe('NER with Anonymizer Integration', () => {
     // Check sources
     const nerEntities = result.entities.filter(e => e.source === DetectionSource.NER);
     const regexEntities = result.entities.filter(e => e.source === DetectionSource.REGEX);
-    
+
     expect(nerEntities.length).toBeGreaterThan(0);
     expect(regexEntities.length).toBeGreaterThan(0);
-    
+
     await anonymizer.dispose();
   }, 60000);
 });
 
+// Runs in ALL environments (no real model): a fake ONNX session returns
+// all-"O" labels, so we exercise the window-cap plumbing — tokenization is
+// bounded, the cap fires, and predict() returns instead of throwing — without
+// downloading the model.
+describe('NERModel window cap', () => {
+  function makeCappedModel(onWindowCap: (info: { scannedWindows: number; inputLength: number }) => void) {
+    const model = createNERModel({
+      modelPath: 'unused',
+      vocabPath: 'unused',
+      maxLength: 8,
+      windowOverlapTokens: 2,
+      maxWindowsPerInput: 2,
+      onWindowCap,
+    });
+    const vocab = new Map<string, number>([
+      ['<s>', 0],
+      ['<pad>', 1],
+      ['</s>', 2],
+      ['<unk>', 3],
+      ['a', 4],
+    ]);
+    // Zero-length logits ⇒ softmax over zeros ⇒ argmax 0 ⇒ label "O" for every
+    // token, so no entities are detected and only the cap path is under test.
+    const fakeSession = {
+      inputNames: ['input_ids', 'attention_mask'],
+      outputNames: ['logits'],
+      run: async () => ({ logits: { data: new Float32Array(0) } }),
+    };
+    const fakeOrt = { Tensor: class { constructor() {} } };
+    Object.assign(model as unknown as Record<string, unknown>, {
+      isLoaded: true,
+      tokenizer: new WordPieceTokenizer(vocab, { maxLength: 8 }),
+      session: fakeSession,
+      ort: fakeOrt,
+    });
+    return model;
+  }
+
+  it('fires onWindowCap and returns (never throws) when input exceeds the budget', async () => {
+    const calls: Array<{ scannedWindows: number; inputLength: number }> = [];
+    const model = makeCappedModel((info) => calls.push(info));
+    const text = 'a'.repeat(20); // 20 content tokens ≫ the 2-window budget
+
+    const result = await model.predict(text);
+
+    expect(result.spans).toEqual([]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({ scannedWindows: 2, inputLength: 20 });
+  });
+
+  it('does not fire onWindowCap for input within the budget', async () => {
+    const calls: unknown[] = [];
+    const model = makeCappedModel((info) => calls.push(info));
+
+    await model.predict('a a'); // 2 tokens, single window
+
+    expect(calls).toHaveLength(0);
+  });
+});

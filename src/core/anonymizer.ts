@@ -202,6 +202,32 @@ export interface NERConfig {
    * @default 0.85
    */
   caseFallbackPenalty?: number;
+
+  /**
+   * Number of content tokens shared by adjacent windows when a long input is
+   * split into multiple inference windows. Larger overlap improves recall for
+   * entities near window boundaries at the cost of more windows.
+   * @default min(64, floor((maxLength - 2) / 4))
+   */
+  windowOverlapTokens?: number;
+
+  /**
+   * Maximum number of inference windows per input. Inputs that tokenize to
+   * more windows are scanned only up to this bound (onWindowCap fires once per
+   * capped inference pass — so twice for one input when caseFallback runs a
+   * second pass). Guards against unbounded inference cost on very large
+   * opaque payloads (e.g. multi-megabyte base64 attachments).
+   * @default undefined (unbounded — full coverage)
+   */
+  maxWindowsPerInput?: number;
+
+  /**
+   * Called when an input exceeds maxWindowsPerInput and its tail is left
+   * unscanned by NER. Callers should log/meter this — it is a coverage
+   * reduction, not an error. When absent, a console warning is emitted.
+   * `inputLength` is the full input character count.
+   */
+  onWindowCap?: (info: { scannedWindows: number; inputLength: number }) => void;
 }
 
 /**
@@ -442,6 +468,9 @@ export class Anonymizer {
         sessionOptions: this.nerConfig.sessionOptions,
         caseFallback: this.nerConfig.caseFallback,
         caseFallbackPenalty: this.nerConfig.caseFallbackPenalty,
+        windowOverlapTokens: this.nerConfig.windowOverlapTokens,
+        maxWindowsPerInput: this.nerConfig.maxWindowsPerInput,
+        onWindowCap: this.nerConfig.onWindowCap,
       });
     } else {
       // 'standard' or 'quantized' - use model manager with local ONNX
@@ -466,6 +495,9 @@ export class Anonymizer {
         sessionOptions: this.nerConfig.sessionOptions,
         caseFallback: this.nerConfig.caseFallback,
         caseFallbackPenalty: this.nerConfig.caseFallbackPenalty,
+        windowOverlapTokens: this.nerConfig.windowOverlapTokens,
+        maxWindowsPerInput: this.nerConfig.maxWindowsPerInput,
+        onWindowCap: this.nerConfig.onWindowCap,
       });
     }
 
@@ -659,6 +691,8 @@ export class Anonymizer {
       policyVersion: this.policyVersion,
       processingTimeMs: endTime - startTime,
       leakScanPassed: validation.leakScanPassed,
+      nerTruncated: nerResult.truncated,
+      nerCoverageChars: nerResult.coverageChars,
     };
 
     // Step 8: Build result (without original text in entities)

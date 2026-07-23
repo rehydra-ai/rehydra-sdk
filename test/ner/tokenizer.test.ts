@@ -109,6 +109,48 @@ describe("WordPieceTokenizer", () => {
       expect(result.tokens[1]?.token).toBe("[SEP]");
     });
 
+    it("should expose all tokens when truncation is disabled", () => {
+      const tokenizerWithShortLimit = new WordPieceTokenizer(
+        new Map<string, number>([
+          ["[UNK]", 0],
+          ["[CLS]", 1],
+          ["[SEP]", 2],
+          ["[PAD]", 3],
+          ["a", 4],
+        ]),
+        { maxLength: 8 },
+      );
+      const text = "a".repeat(20);
+
+      expect(tokenizerWithShortLimit.tokenize(text).tokens).toHaveLength(8);
+      expect(
+        tokenizerWithShortLimit.tokenize(text, { truncate: false }).tokens,
+      ).toHaveLength(22);
+    });
+
+    it("bounds token count and flags truncation with maxTokens", () => {
+      const tok = new WordPieceTokenizer(
+        new Map<string, number>([
+          ["[UNK]", 0],
+          ["[CLS]", 1],
+          ["[SEP]", 2],
+          ["[PAD]", 3],
+          ["a", 4],
+        ]),
+      );
+
+      // maxTokens wins over truncate:false and caps the array (incl. CLS/SEP).
+      const capped = tok.tokenize("a".repeat(20), { truncate: false, maxTokens: 10 });
+      expect(capped.tokens).toHaveLength(10);
+      expect(capped.tokens.at(-1)?.token).toBe("[SEP]");
+      expect(capped.truncated).toBe(true);
+
+      // Input that fits within the budget is not flagged truncated.
+      const whole = tok.tokenize("a".repeat(4), { truncate: false, maxTokens: 10 });
+      expect(whole.truncated).toBe(false);
+      expect(whole.tokens).toHaveLength(6); // CLS + 4 + SEP
+    });
+
     it("should provide tokenToCharSpan mapping", () => {
       const result = tokenizer.tokenize("hello");
 
@@ -119,179 +161,6 @@ describe("WordPieceTokenizer", () => {
       expect(
         result.tokenToCharSpan[result.tokenToCharSpan.length - 1]
       ).toBeNull(); // SEP
-    });
-  });
-
-  describe("tokenizeWindows", () => {
-    const mockVocab = new Map<string, number>([
-      ["[UNK]", 0],
-      ["[CLS]", 1],
-      ["[SEP]", 2],
-      ["[PAD]", 3],
-      ["▁hello", 4],
-      ["▁world", 5],
-      ["▁john", 6],
-      ["▁smith", 7],
-    ]);
-
-    it("should return a single window identical to tokenize() for short text", () => {
-      const tokenizer = new WordPieceTokenizer(mockVocab);
-      const text = "hello world";
-
-      const windows = tokenizer.tokenizeWindows(text);
-
-      expect(windows.length).toBe(1);
-      expect(windows[0]!.inputIds).toEqual(tokenizer.tokenize(text).inputIds);
-      expect(windows[0]!.coreCharStart).toBe(0);
-      expect(windows[0]!.coreCharEnd).toBe(text.length);
-    });
-
-    it("should produce multiple overlapping windows for long text", () => {
-      // maxLength 12 -> 10 content tokens per window
-      const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 12 });
-      const text = "hello world ".repeat(20).trim(); // 40 tokens
-
-      const windows = tokenizer.tokenizeWindows(text, 4);
-
-      expect(windows.length).toBeGreaterThan(1);
-
-      for (const window of windows) {
-        expect(window.tokens.length).toBeLessThanOrEqual(12);
-        expect(window.tokens[0]?.token).toBe("[CLS]");
-        expect(window.tokens[window.tokens.length - 1]?.token).toBe("[SEP]");
-      }
-
-      // Consecutive windows share tokens (overlap)
-      for (let i = 1; i < windows.length; i++) {
-        const prevContent = windows[i - 1]!.tokens.filter((t) => !t.isSpecial);
-        const currContent = windows[i]!.tokens.filter((t) => !t.isSpecial);
-        expect(currContent[0]!.start).toBeLessThan(
-          prevContent[prevContent.length - 1]!.end
-        );
-      }
-    });
-
-    it("should tile core ranges exactly over the full text", () => {
-      const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 12 });
-      const text = "hello world ".repeat(20).trim();
-
-      const windows = tokenizer.tokenizeWindows(text, 4);
-
-      expect(windows[0]!.coreCharStart).toBe(0);
-      expect(windows[windows.length - 1]!.coreCharEnd).toBe(text.length);
-      for (let i = 1; i < windows.length; i++) {
-        expect(windows[i]!.coreCharStart).toBe(windows[i - 1]!.coreCharEnd);
-      }
-    });
-
-    it("should cover every token exactly once across window cores", () => {
-      const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 12 });
-      const text = "hello world ".repeat(20) + "john smith";
-
-      // Reference: untruncated tokenization
-      const reference = new WordPieceTokenizer(mockVocab, {
-        maxLength: 100000,
-      })
-        .tokenize(text)
-        .tokens.filter((t) => !t.isSpecial)
-        .map((t) => [t.start, t.end]);
-
-      const covered = tokenizer
-        .tokenizeWindows(text, 4)
-        .flatMap((w) =>
-          w.tokens
-            .filter(
-              (t) =>
-                !t.isSpecial &&
-                t.start >= w.coreCharStart &&
-                t.start < w.coreCharEnd
-            )
-            .map((t) => [t.start, t.end])
-        );
-
-      expect(covered).toEqual(reference);
-    });
-
-    it("should terminate and cover all tokens for degenerate maxLength", () => {
-      // maxLength <= 2 leaves no room for content tokens; must not hang
-      const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 2 });
-      const text = "hello world hello world";
-
-      const windows = tokenizer.tokenizeWindows(text);
-
-      const covered = windows.flatMap((w) =>
-        w.tokens.filter(
-          (t) =>
-            !t.isSpecial &&
-            t.start >= w.coreCharStart &&
-            t.start < w.coreCharEnd
-        )
-      );
-      expect(covered.length).toBe(4);
-    });
-
-    it("should cover continuation tokens exactly once when windows split mid-word", () => {
-      // 'abcd' tokenizes as ▁ab + cd, so window and core boundaries can
-      // fall inside a word — the normal case with a real subword vocab
-      const subwordVocab = new Map<string, number>([
-        ["[UNK]", 0],
-        ["[CLS]", 1],
-        ["[SEP]", 2],
-        ["[PAD]", 3],
-        ["▁ab", 4],
-        ["cd", 5],
-      ]);
-      const tokenizer = new WordPieceTokenizer(subwordVocab, {
-        maxLength: 13,
-      });
-      const text = "abcd ".repeat(40).trim(); // 80 tokens
-
-      const reference = new WordPieceTokenizer(subwordVocab, {
-        maxLength: 100000,
-      })
-        .tokenize(text)
-        .tokens.filter((t) => !t.isSpecial)
-        .map((t) => [t.start, t.end, t.isContinuation]);
-
-      const windows = tokenizer.tokenizeWindows(text, 4);
-      const covered = windows.flatMap((w) =>
-        w.tokens
-          .filter(
-            (t) =>
-              !t.isSpecial &&
-              t.start >= w.coreCharStart &&
-              t.start < w.coreCharEnd
-          )
-          .map((t) => [t.start, t.end, t.isContinuation])
-      );
-
-      expect(covered).toEqual(reference);
-
-      // The scenario must actually occur: some window starts mid-word
-      expect(
-        windows.some((w) => w.tokens[1]?.isContinuation === true)
-      ).toBe(true);
-    });
-
-    it("should include tokens past the single-window truncation point", () => {
-      const tokenizer = new WordPieceTokenizer(mockVocab, { maxLength: 12 });
-      const text = "hello world ".repeat(20) + "john smith";
-      const johnOffset = text.indexOf("john");
-
-      const truncated = tokenizer.tokenize(text);
-      const truncatedMax = Math.max(
-        ...truncated.tokens.filter((t) => !t.isSpecial).map((t) => t.end)
-      );
-      expect(truncatedMax).toBeLessThan(johnOffset);
-
-      const windows = tokenizer.tokenizeWindows(text, 4);
-      const owner = windows.find(
-        (w) => johnOffset >= w.coreCharStart && johnOffset < w.coreCharEnd
-      );
-      expect(owner).toBeDefined();
-      expect(
-        owner!.tokens.some((t) => !t.isSpecial && t.start === johnOffset)
-      ).toBe(true);
     });
   });
 

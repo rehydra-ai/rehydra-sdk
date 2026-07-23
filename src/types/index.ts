@@ -231,6 +231,23 @@ export interface AnonymizationStats {
   processingTimeMs: number;
   /** Whether leak scan passed (if enabled) */
   leakScanPassed?: boolean;
+  /**
+   * True when NER coverage was truncated because the input exceeded
+   * maxWindowsPerInput (its tail was not scanned by the NER model). Regex
+   * detection is unaffected. Callers enforcing a fail-closed policy should
+   * treat this as incomplete masking. Undefined when NER did not run (e.g.
+   * regex-only) or the producer does not report coverage.
+   */
+  nerTruncated?: boolean;
+  /**
+   * Number of leading input characters NER scanned (in prenormalized space).
+   * Only meaningful when nerTruncated is true: a caller can cut the input at
+   * this offset to keep only the fully-scanned portion. Because prenormalized
+   * text is never longer than the original, cutting the original string at
+   * this offset stays at or before the true boundary (never keeps unscanned
+   * content).
+   */
+  nerCoverageChars?: number;
 }
 
 /**

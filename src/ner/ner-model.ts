@@ -22,6 +22,12 @@ import {
   cleanupSpanBoundaries,
   mergeAdjacentSpans,
 } from "./bio-decoder.js";
+import {
+  createTokenWindows,
+  mergeWindowSpans,
+  validateWindowConfig,
+  windowTokenBudget,
+} from "./token-window.js";
 import { getStorageProvider, isBrowser } from "#storage";
 
 /**
@@ -36,6 +42,26 @@ export interface NERModelConfig {
   labelMap: string[];
   /** Maximum sequence length */
   maxLength: number;
+  /** Number of content tokens shared by adjacent long-input windows. */
+  windowOverlapTokens: number;
+  /**
+   * Maximum number of inference windows per input. Inputs that tokenize to
+   * more windows are scanned only up to this bound (onWindowCap fires once per
+   * capped inference pass — so twice for one input when caseFallback runs a
+   * second pass). Guards callers that feed very large opaque payloads
+   * (multi-megabyte base64 attachments) from unbounded inference cost.
+   * @default undefined (unbounded — full coverage)
+   */
+  maxWindowsPerInput?: number;
+  /**
+   * Called when an input exceeds maxWindowsPerInput and its tail is left
+   * unscanned. Callers should log/meter this — it is a coverage reduction,
+   * not an error. When absent, a console warning is emitted instead.
+   * `inputLength` is the full input character count; the true total window
+   * count is not reported because tokenization stops at the cap (computing
+   * it would require tokenizing the whole input, the cost the cap avoids).
+   */
+  onWindowCap?: (info: { scannedWindows: number; inputLength: number }) => void;
   /** Whether model expects lowercase input */
   doLowerCase: boolean;
   /** Model version for tracking */
@@ -66,6 +92,20 @@ export interface NERPrediction {
   processingTimeMs: number;
   /** Model version used */
   modelVersion: string;
+  /**
+   * True when the input exceeded maxWindowsPerInput and its tail was left
+   * unscanned by NER. Callers enforcing a fail-closed policy should treat
+   * this as incomplete coverage.
+   */
+  truncated: boolean;
+  /**
+   * Number of leading input characters NER actually scanned — the end offset
+   * of the last content token. When not truncated this covers the whole input
+   * except any trailing whitespace/punctuation past the last token; when
+   * truncated, a caller can cut the input at this offset to keep only the
+   * fully-scanned portion.
+   */
+  coverageChars: number;
 }
 
 /**
@@ -171,8 +211,7 @@ export class NERModel {
   }
 
   /**
-   * Runs a full NER pass: tokenize into overlapping windows, infer per
-   * window, decode BIO tags, and reconcile window results.
+   * Runs a single NER pass: tokenize, infer, decode BIO tags.
    * @param inputText - Text to tokenize and feed to the model
    * @param originalText - Original text used for extracting entity text (may differ in casing)
    */
@@ -180,42 +219,66 @@ export class NERModel {
     inputText: string,
     originalText: string,
     minConfidence: number
-  ): Promise<SpanMatch[]> {
-    // Tokenize into overlapping model-sized windows so inputs longer than
-    // maxLength tokens are fully processed instead of silently truncated
-    const windows = this.tokenizer!.tokenizeWindows(inputText);
-
+  ): Promise<{ spans: SpanMatch[]; truncated: boolean; coverageChars: number }> {
+    // Tokenize without per-model truncation so windows retain global
+    // character offsets. Bound the token count to what maxWindowsPerInput
+    // windows can consume: only the leading windows are ever scanned, so
+    // materializing a multi-million-token array for a multi-MB value would
+    // be pure waste (and a memory hazard). maxTokens undefined = unbounded.
+    const maxTokens =
+      this.config.maxWindowsPerInput === undefined
+        ? undefined
+        : windowTokenBudget(
+            this.config.maxLength,
+            this.config.windowOverlapTokens,
+            this.config.maxWindowsPerInput,
+          );
+    const tokenization = this.tokenizer!.tokenize(inputText, { truncate: false, maxTokens });
+    const windows = createTokenWindows(
+      tokenization,
+      this.config.maxLength,
+      this.config.windowOverlapTokens,
+    );
+    if (tokenization.truncated) {
+      const info = { scannedWindows: windows.length, inputLength: inputText.length };
+      if (this.config.onWindowCap) {
+        this.config.onWindowCap(info);
+      } else {
+        console.warn(
+          `[rehydra] NER input (${info.inputLength} chars) exceeds the window budget; scanning only the first ${info.scannedWindows} windows (maxWindowsPerInput)`,
+        );
+      }
+    }
     const spans: SpanMatch[] = [];
-    for (const window of windows) {
-      // Run inference
-      const { labels, confidences } = await this.runInference(window);
 
-      // Decode BIO tags using original text for entity text extraction
-      // (offsets are identical since casing doesn't change string length)
+    for (const window of windows) {
+      const { labels, confidences } = await this.runInference(window);
       const rawEntities = decodeBIOTags(
         window.tokens,
         labels,
         confidences,
-        originalText
+        originalText,
       );
-
-      // Keep entities that overlap this window's core range. Overlap
-      // (rather than strict start-anchoring) tolerates adjacent windows
-      // decoding slightly different boundaries for the same entity near a
-      // core boundary — otherwise both windows could reject it and the
-      // entity would be dropped entirely
-      const anchored = rawEntities.filter(
-        (e) => e.end > window.coreCharStart && e.start < window.coreCharEnd
-      );
-
-      // Convert to SpanMatch format with confidence filtering
-      spans.push(...convertToSpanMatches(anchored, minConfidence));
+      spans.push(...convertToSpanMatches(rawEntities, minConfidence));
     }
 
-    // An entity straddling a core boundary can be kept by both adjacent
-    // windows; union overlapping same-type spans so it is reported once
-    // with its full detected extent
-    return mergeOverlappingWindowSpans(spans, originalText);
+    // Chars of input actually scanned = end of the last content token (the
+    // token before the trailing SEP). When there is no content token, coverage
+    // is 0 if we truncated (nothing was scanned — a caller must not treat this
+    // as "all covered") and the full length otherwise (empty/whitespace input).
+    const lastContentToken = tokenization.tokens[tokenization.tokens.length - 2];
+    const hasContentToken = lastContentToken !== undefined && !lastContentToken.isSpecial;
+    const coverageChars = hasContentToken
+      ? lastContentToken.end
+      : tokenization.truncated
+        ? 0
+        : inputText.length;
+
+    return {
+      spans: mergeWindowSpans(spans, originalText),
+      truncated: tokenization.truncated,
+      coverageChars,
+    };
   }
 
   /**
@@ -234,7 +297,13 @@ export class NERModel {
     const minConfidence = this.getMinConfidence(policy);
 
     // Primary NER pass on original text
-    let spans = await this.runNERPass(text, text, minConfidence);
+    const primary = await this.runNERPass(text, text, minConfidence);
+    let spans = primary.spans;
+    let truncated = primary.truncated;
+    // A caller cutting at coverageChars must stay within what BOTH passes
+    // scanned, so take the smaller offset. (Title-casing preserves length but
+    // changes tokenization, so the fallback pass can cap at a different point.)
+    let coverageChars = primary.coverageChars;
 
     // Case fallback: run a second pass on title-cased text to catch lowercase names
     const caseFallback = this.config.caseFallback ?? false;
@@ -242,17 +311,19 @@ export class NERModel {
       const titleCased = titleCaseWords(text);
       if (titleCased !== text) {
         const penalty = this.config.caseFallbackPenalty ?? 0.85;
-        const fallbackSpans = await this.runNERPass(titleCased, text, minConfidence);
+        const fallback = await this.runNERPass(titleCased, text, minConfidence);
+        truncated = truncated || fallback.truncated;
+        coverageChars = Math.min(coverageChars, fallback.coverageChars);
 
         // Merge only non-overlapping fallback detections with a confidence penalty
-        for (const fallback of fallbackSpans) {
+        for (const span of fallback.spans) {
           const overlaps = spans.some(
-            (primary) => primary.start < fallback.end && fallback.start < primary.end
+            (existing) => existing.start < span.end && span.start < existing.end
           );
           if (!overlaps) {
             spans.push({
-              ...fallback,
-              confidence: fallback.confidence * penalty,
+              ...span,
+              confidence: span.confidence * penalty,
             });
           }
         }
@@ -278,6 +349,8 @@ export class NERModel {
       spans,
       processingTimeMs: endTime - startTime,
       modelVersion: this.config.modelVersion,
+      truncated,
+      coverageChars,
     };
   }
 
@@ -431,39 +504,6 @@ export class NERModel {
     this.isLoaded = false;
     return Promise.resolve();
   }
-}
-
-/**
- * Merges overlapping same-type spans collected from adjacent windows into
- * their union. Windows can disagree on the exact boundaries of an entity
- * near a core boundary; keeping the union guarantees no part of a detected
- * entity is left unmasked.
- */
-function mergeOverlappingWindowSpans(
-  spans: SpanMatch[],
-  originalText: string
-): SpanMatch[] {
-  if (spans.length <= 1) return spans;
-
-  const sorted = [...spans].sort((a, b) => a.start - b.start || b.end - a.end);
-  const merged: SpanMatch[] = [{ ...sorted[0]! }];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const span = sorted[i]!;
-    const last = merged[merged.length - 1]!;
-
-    if (span.type === last.type && span.start < last.end) {
-      if (span.end > last.end) {
-        last.end = span.end;
-        last.text = originalText.slice(last.start, last.end);
-      }
-      last.confidence = Math.max(last.confidence, span.confidence);
-    } else {
-      merged.push({ ...span });
-    }
-  }
-
-  return merged;
 }
 
 /**
@@ -636,17 +676,29 @@ function softmax(logits: number[]): number[] {
 export function createNERModel(
   config: Partial<NERModelConfig> & { modelPath: string; vocabPath: string }
 ): NERModel {
+  const maxLength = config.maxLength ?? 512;
   const fullConfig: NERModelConfig = {
     modelPath: config.modelPath,
     vocabPath: config.vocabPath,
     labelMap: config.labelMap ?? DEFAULT_LABEL_MAP,
-    maxLength: config.maxLength ?? 512,
+    maxLength,
+    windowOverlapTokens: config.windowOverlapTokens
+      ?? Math.min(64, Math.max(0, Math.floor((maxLength - 2) / 4))),
+    maxWindowsPerInput: config.maxWindowsPerInput,
+    onWindowCap: config.onWindowCap,
     doLowerCase: config.doLowerCase ?? false, // XLM-RoBERTa is cased
     modelVersion: config.modelVersion ?? "1.0.0",
     sessionOptions: config.sessionOptions,
     caseFallback: config.caseFallback,
     caseFallbackPenalty: config.caseFallbackPenalty,
   };
+
+  // Fail fast on bad windowing config instead of on the first predict().
+  validateWindowConfig(
+    fullConfig.maxLength,
+    fullConfig.windowOverlapTokens,
+    fullConfig.maxWindowsPerInput,
+  );
 
   return new NERModel(fullConfig);
 }
@@ -671,6 +723,8 @@ export class NERModelStub {
       spans: [],
       processingTimeMs: 0,
       modelVersion: this.version,
+      truncated: false,
+      coverageChars: _text.length,
     });
   }
 
