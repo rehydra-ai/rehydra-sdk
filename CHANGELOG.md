@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.11.1...v0.12.0) (2026-07-25)
+
+
+### Features
+
+* **ner:** cap windows and bound tokenization on long inputs ([#87](https://github.com/rehydra-ai/rehydra-sdk/issues/87)) ([a70ac74](https://github.com/rehydra-ai/rehydra-sdk/commit/a70ac748aa05962597e7ad6ebbb53eb7b07ed7a2))
+
 ## [0.11.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.11.0...v0.11.1) (2026-07-21)
 
 
