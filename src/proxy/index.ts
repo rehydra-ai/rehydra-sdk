@@ -25,5 +25,6 @@ export type {
   RehydraProxyConfig,
   OnToolCallFn,
   AnonymizeInfo,
+  PathOverlapWarning,
 } from "./types.js";
 export { DEFAULT_PII_SYSTEM_INSTRUCTION } from "./system-instruction.js";

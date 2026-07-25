@@ -125,6 +125,17 @@ describe("proxy command", () => {
       ).rejects.toThrow("Unknown provider: gemini");
     });
 
+    it("should start with an upstream that is not an absolute URL", async () => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({ upstream: "api.example.com/v1" }),
+      );
+      expect(exitCode).toBe(0);
+      expect(mockCreateRehydraProxy.mock.calls[0]![0].upstream).toBe(
+        "api.example.com/v1",
+      );
+    });
+
     it("should throw for invalid port", async () => {
       await expect(
         proxyCommand("claude", makeOptions({ port: "abc" })),
@@ -348,6 +359,80 @@ describe("proxy command", () => {
       const exitCode = await startAndShutdown("claude", makeOptions({ quiet: true }));
       expect(exitCode).toBe(0);
       expect(stderrChunks.join("")).not.toContain("Shutting down");
+    });
+  });
+
+  // --- Path overlap warnings ---
+
+  describe("path overlap warnings", () => {
+    const warning = {
+      overlappingSegments: ["v1"],
+    };
+
+    it("wires an actionable warning callback when output is enabled", async () => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({
+          upstream: "https://nano-gpt.com/api/v1",
+          quiet: false,
+        }),
+      );
+      expect(exitCode).toBe(0);
+
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+      expect(config.onPathOverlapWarning).toBeTypeOf("function");
+
+      config.onPathOverlapWarning!(warning);
+
+      const output = stderrChunks.join("");
+      expect(output).toContain("Warning:");
+      expect(output).toContain(
+        "Warning: Upstream and incoming request path overlap on /v1; " +
+          "forwarding to https://nano-gpt.com/api/v1/v1/...\n" +
+          "To fix, remove it from --upstream or the client base URL.\n",
+      );
+    });
+
+    it("does not wire the warning callback in quiet mode", async () => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({
+          upstream: "https://nano-gpt.com/api/v1",
+          quiet: true,
+        }),
+      );
+      expect(exitCode).toBe(0);
+
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+      expect(config.onPathOverlapWarning).toBeUndefined();
+    });
+
+    it("prints once across the initial and NER-enabled proxies", async () => {
+      mockIsModelDownloaded.mockResolvedValue(true);
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({
+          upstream: "https://nano-gpt.com/api/v1",
+          ner: "quantized",
+          quiet: false,
+        }),
+      );
+      expect(exitCode).toBe(0);
+
+      await vi.waitFor(() => {
+        expect(mockCreateRehydraProxy).toHaveBeenCalledTimes(2);
+      });
+
+      const initialConfig = mockCreateRehydraProxy.mock.calls[0]![0];
+      const nerConfig = mockCreateRehydraProxy.mock.calls[1]![0];
+
+      initialConfig.onPathOverlapWarning!(warning);
+      nerConfig.onPathOverlapWarning!(warning);
+
+      const matches = stderrChunks
+        .join("")
+        .match(/Warning: Upstream and incoming request path/g);
+      expect(matches).toHaveLength(1);
     });
   });
 

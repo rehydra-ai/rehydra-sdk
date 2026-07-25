@@ -146,6 +146,9 @@ export async function proxyCommand(
   // LLM API key — from --api-key flag or LLM_API_KEY env var
   const llmApiKey = options["api-key"] ?? process.env["LLM_API_KEY"];
 
+  // Avoid warning on every request
+  let hasShownPathOverlapWarning = false;
+
   // Build shared proxy config (without NER initially)
   const baseProxyConfig: RehydraProxyConfig = {
     upstream,
@@ -159,6 +162,27 @@ export async function proxyCommand(
     policy,
     locale: options.locale,
     apiKey: llmApiKey,
+
+    // Warn about overlapping paths without exposing request paths or queries
+    ...(!options.quiet
+      ? {
+          onPathOverlapWarning: (warning): void => {
+            if (hasShownPathOverlapWarning) return;
+
+            // Prevent multiple warnings in same session
+            hasShownPathOverlapWarning = true;
+
+            const duplicated = "/" + warning.overlappingSegments.join("/");
+
+            process.stderr.write(
+              yellow(
+                `Warning: Upstream and incoming request path overlap on ${duplicated}; forwarding to ${upstream}${duplicated}/...\nTo fix, remove it from --upstream or the client base URL.\n`,
+              ),
+            );
+          },
+        }
+      : {}),
+
     // With --verbose, log per-request anonymization to stderr (never raw PII)
     ...(options.verbose && !options.quiet
       ? {
