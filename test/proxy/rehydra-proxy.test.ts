@@ -76,7 +76,7 @@ describe("createRehydraProxy path overlap warning", () => {
     expect(warnings[0]?.overlappingSegments).toEqual(["api", "v1"]);
   });
 
-  it("should not warn when only non-boundary path segments match", async () => {
+  it("should not warn when a shared segment does not overlap at the join boundary", async () => {
     const onPathOverlapWarning = vi.fn();
     const proxy = createRehydraProxy(
       makeConfig({
