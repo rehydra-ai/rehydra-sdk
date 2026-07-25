@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     branches: [main]
+  # Manual escape hatch: publish the versions currently on main to npm (e.g.
+  # when a tagged release exists but the publish job did not run). npm rejects
+  # re-publishing an existing version, so a redundant dispatch fails loudly
+  # instead of double-publishing.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -10,10 +15,14 @@ permissions:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs['.--release_created'] }}
-      tag_name: ${{ steps.release.outputs['.--tag_name'] }}
+      # The root package (path ".") gets un-prefixed outputs from
+      # release-please-action v4; path-prefixed names like ".--release_created"
+      # do not exist and silently resolve to empty.
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -22,7 +31,7 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
