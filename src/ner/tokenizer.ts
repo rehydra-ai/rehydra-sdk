@@ -36,29 +36,13 @@ export interface TokenizationResult {
   tokenTypeIds: number[];
   /** Mapping from token index to character span [start, end] */
   tokenToCharSpan: Array<[number, number] | null>;
+  /**
+   * True when tokenization stopped before consuming all input — either
+   * because `truncate` capped it at maxLength or because `maxTokens` bounded
+   * it. Lets callers know detection coverage is partial.
+   */
+  truncated: boolean;
 }
-
-/**
- * A model-sized window over the full token stream of a long input.
- * Consecutive windows overlap so entities near a window boundary are seen
- * with full context by at least one window. The core range delimits the
- * characters this window is authoritative for: cores tile the input exactly,
- * so an entity anchored (by start offset) in a core belongs to exactly one
- * window and cross-window duplicates cannot occur.
- */
-export interface TokenizationWindow extends TokenizationResult {
-  /** Start character offset (inclusive) of this window's core range */
-  coreCharStart: number;
-  /** End character offset (exclusive) of this window's core range */
-  coreCharEnd: number;
-}
-
-/**
- * Default token overlap between consecutive windows.
- * Entities up to half this length are guaranteed to fit entirely inside
- * the window that owns them.
- */
-export const DEFAULT_WINDOW_OVERLAP = 128;
 
 /**
  * HuggingFace tokenizer.json structure
@@ -88,6 +72,19 @@ export interface TokenizerConfig {
   maxLength: number;
   /** Whether to lowercase input */
   doLowerCase: boolean;
+}
+
+export interface TokenizeOptions {
+  /** Whether to truncate to the configured maximum sequence length. */
+  truncate?: boolean;
+  /**
+   * Stop after producing this many tokens (including the CLS/SEP special
+   * tokens). Bounds memory and CPU on very large inputs: the caller only
+   * needs enough tokens to build its windows, so there is no point
+   * materializing a multi-million-token array for a multi-MB value.
+   * Takes precedence over `truncate` when set.
+   */
+  maxTokens?: number;
 }
 
 /**
@@ -202,103 +199,31 @@ export class WordPieceTokenizer {
   }
 
   /**
-   * Tokenizes text into tokens with offset tracking.
-   * Truncates to maxLength tokens — use tokenizeWindows() for inputs that
-   * may exceed the model's sequence length.
+   * Tokenizes text into tokens with offset tracking
    */
-  tokenize(text: string): TokenizationResult {
-    const content = this.tokenizeContent(text);
-
-    // Truncate if necessary (maxLength includes CLS and SEP)
-    const maxContent = Math.max(0, this.config.maxLength - 2);
-    const truncated =
-      content.length > maxContent ? content.slice(0, maxContent) : content;
-
-    return this.buildResult(truncated, text);
-  }
-
-  /**
-   * Tokenizes text into overlapping model-sized windows covering the full
-   * input, so no tokens are silently dropped for long texts.
-   * Each window carries a core character range; together the cores tile the
-   * input exactly. Callers should keep an entity only from the window whose
-   * core contains the entity's start offset.
-   */
-  tokenizeWindows(
-    text: string,
-    overlap: number = DEFAULT_WINDOW_OVERLAP
-  ): TokenizationWindow[] {
-    const content = this.tokenizeContent(text);
-    // Clamp to >= 1 so a degenerate maxLength (< 3) cannot produce a
-    // zero-token window and a non-advancing stride below
-    const windowSize = Math.max(1, this.config.maxLength - 2);
-
-    // Short input: single window, identical to tokenize()
-    if (content.length <= windowSize) {
-      return [
-        {
-          ...this.buildResult(content, text),
-          coreCharStart: 0,
-          coreCharEnd: text.length,
-        },
-      ];
-    }
-
-    // Clamp overlap so the stride stays positive
-    const effectiveOverlap = Math.min(
-      Math.max(overlap, 0),
-      Math.floor(windowSize / 2)
-    );
-    const stride = windowSize - effectiveOverlap;
-
-    // Window start indices; the last window is right-aligned so it always
-    // ends exactly at the end of the token stream
-    const starts: number[] = [];
-    for (let s = 0; ; s += stride) {
-      if (s + windowSize >= content.length) {
-        starts.push(content.length - windowSize);
-        break;
-      }
-      starts.push(s);
-    }
-
-    const windows: TokenizationWindow[] = [];
-    for (let i = 0; i < starts.length; i++) {
-      const start = starts[i]!;
-      const end = start + windowSize;
-
-      // Core boundaries sit at the midpoint of each overlap region, so
-      // consecutive cores meet exactly and every token start is owned by
-      // precisely one window
-      const coreTokenStart =
-        i === 0 ? 0 : Math.floor((start + starts[i - 1]! + windowSize) / 2);
-      const coreTokenEnd =
-        i === starts.length - 1
-          ? content.length
-          : Math.floor((starts[i + 1]! + end) / 2);
-
-      windows.push({
-        ...this.buildResult(content.slice(start, end), text),
-        coreCharStart: i === 0 ? 0 : content[coreTokenStart]!.start,
-        coreCharEnd:
-          coreTokenEnd >= content.length
-            ? text.length
-            : content[coreTokenEnd]!.start,
-      });
-    }
-
-    return windows;
-  }
-
-  /**
-   * Tokenizes text into content tokens (no special tokens, no truncation)
-   * using greedy longest-match with character offset tracking
-   */
-  private tokenizeContent(text: string): Token[] {
+  tokenize(text: string, options: TokenizeOptions = {}): TokenizationResult {
     const tokens: Token[] = [];
+    const tokenToCharSpan: Array<[number, number] | null> = [];
+
+    // Add CLS token
+    tokens.push({
+      id: this.clsId,
+      token: this.clsToken,
+      start: 0,
+      end: 0,
+      isContinuation: false,
+      isSpecial: true,
+    });
+    tokenToCharSpan.push(null);
 
     // Preprocess text
     const processedText = this.config.doLowerCase ? text.toLowerCase() : text;
+
+    // Token budget, counting the CLS already pushed and the SEP still to come.
+    // maxTokens wins over truncate; otherwise truncate caps at maxLength.
+    const maxTokens =
+      options.maxTokens ?? ((options.truncate ?? true) ? this.config.maxLength : undefined);
+    let truncated = false;
 
     // Tokenize using greedy longest-match
     let pos = 0;
@@ -307,6 +232,14 @@ export class WordPieceTokenizer {
       if (/\s/.test(processedText[pos]!)) {
         pos++;
         continue;
+      }
+
+      // Stop before exceeding the budget (reserve one slot for the SEP token).
+      // Breaking here — rather than tokenizing everything and slicing — keeps
+      // memory bounded on huge inputs.
+      if (maxTokens !== undefined && tokens.length >= maxTokens - 1) {
+        truncated = true;
+        break;
       }
 
       // Find the longest matching token starting at this position
@@ -322,49 +255,34 @@ export class WordPieceTokenizer {
         isContinuation: !isFirstOfWord && !token.startsWith('▁'),
         isSpecial: false,
       });
+      tokenToCharSpan.push([pos, pos + length]);
 
       pos += length;
     }
 
-    return tokens;
-  }
+    // Add SEP token
+    tokens.push({
+      id: this.sepId,
+      token: this.sepToken,
+      start: text.length,
+      end: text.length,
+      isContinuation: false,
+      isSpecial: true,
+    });
+    tokenToCharSpan.push(null);
 
-  /**
-   * Wraps content tokens with CLS/SEP and builds the model input arrays
-   */
-  private buildResult(contentTokens: Token[], text: string): TokenizationResult {
-    const tokens: Token[] = [
-      {
-        id: this.clsId,
-        token: this.clsToken,
-        start: 0,
-        end: 0,
-        isContinuation: false,
-        isSpecial: true,
-      },
-      ...contentTokens,
-      {
-        id: this.sepId,
-        token: this.sepToken,
-        start: text.length,
-        end: text.length,
-        isContinuation: false,
-        isSpecial: true,
-      },
-    ];
-
-    const tokenToCharSpan: Array<[number, number] | null> = [
-      null,
-      ...contentTokens.map((t): [number, number] => [t.start, t.end]),
-      null,
-    ];
+    // Build arrays
+    const inputIds = tokens.map((t) => t.id);
+    const attentionMask = tokens.map(() => 1);
+    const tokenTypeIds = tokens.map(() => 0);
 
     return {
       tokens,
-      inputIds: tokens.map((t) => t.id),
-      attentionMask: tokens.map(() => 1),
-      tokenTypeIds: tokens.map(() => 0),
+      inputIds,
+      attentionMask,
+      tokenTypeIds,
       tokenToCharSpan,
+      truncated,
     };
   }
 

@@ -380,8 +380,6 @@ async function anonymizeFile(
         totalEntities: finishData.totalEntities,
         countsByType: countsByType as Record<PIIType, number>,
         processingTimeMs: finishData.totalProcessingTimeMs,
-        modelVersion: "",
-        policyVersion: "",
       }) + "\n",
     );
   }

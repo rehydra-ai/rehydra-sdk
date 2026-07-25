@@ -107,6 +107,10 @@ export class InferenceServerNERModel implements INERModel {
       spans,
       processingTimeMs: result.processingTimeMs,
       modelVersion: this.version,
+      // The remote server owns tokenization; windowing/capping does not apply
+      // on this path, so coverage is never client-side truncated.
+      truncated: false,
+      coverageChars: text.length,
     };
   }
 

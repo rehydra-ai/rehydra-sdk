@@ -74,7 +74,12 @@ export function formatInspect(
   return result;
 }
 
-export function formatStats(stats: AnonymizationStats): string {
+export function formatStats(
+  stats: Pick<
+    AnonymizationStats,
+    "totalEntities" | "countsByType" | "processingTimeMs"
+  >,
+): string {
   const lines: string[] = [];
   lines.push(
     `  ${bold("Found")} ${stats.totalEntities} PII ${stats.totalEntities === 1 ? "entity" : "entities"}:`,
