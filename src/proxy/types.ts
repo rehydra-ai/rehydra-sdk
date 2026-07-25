@@ -115,10 +115,7 @@ export interface RehydraFetchConfig {
 }
 
 /**
- * Reported when the upstream base path and the incoming request path share
- * segments, meaning the forwarded URL repeats them (e.g. an upstream of
- * `https://host/api/v1` plus a request to `/v1/chat/completions` is forwarded
- * to `/api/v1/v1/chat/completions`).
+ * Reported when the upstream base path and the incoming request path share segments
  */
 export interface PathOverlapWarning {
   /**
