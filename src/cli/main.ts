@@ -56,7 +56,7 @@ ${bold("OPTIONS")}
       --secrets            Enable secrets/credentials detection
       --env-file <file>    .env file path for literal value redaction
   -p, --port <port>        Proxy port (default: 8787)
-      --upstream <url>     Custom upstream URL (overrides provider default)
+      --upstream <url>     Absolute HTTP(S) upstream URL (overrides provider default)
       --api-key <key>      LLM API key (or set LLM_API_KEY env var)
       --tag-open <str>     Tag open delimiter (default: "<")
       --tag-close <str>    Tag close delimiter (default: "/>")

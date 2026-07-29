@@ -40,6 +40,7 @@ const PROVIDER_CANONICAL: Record<string, "openai" | "anthropic"> = {
 function getConnectionHints(
   provider: "openai" | "anthropic",
   baseUrl: string,
+  upstream: URL,
   hasApiKey: boolean,
 ): string {
   const lines: string[] = [];
@@ -63,16 +64,20 @@ function getConnectionHints(
       `    ${dim(baseUrl)}`,
     );
   } else {
+    const upstreamPathSegments = upstream.pathname.split("/").filter(Boolean);
+    const openAIBaseUrl =
+      upstreamPathSegments.at(-1) === "v1" ? baseUrl : `${baseUrl}/v1`;
+
     lines.push(
       `  ${bold("Environment variable")}`,
-      `    export OPENAI_BASE_URL=${baseUrl}/v1`,
+      `    export OPENAI_BASE_URL=${openAIBaseUrl}`,
       "",
       `  ${bold("Cursor")}`,
       `    Settings ${dim("→")} Models ${dim("→")} OpenAI ${dim("→")} Override Base URL`,
-      `    ${dim(baseUrl + "/v1")}`,
+      `    ${dim(openAIBaseUrl)}`,
       "",
       `  ${bold("OpenAI SDK")}`,
-      `    ${dim(`new OpenAI({ baseURL: "${baseUrl}/v1" })`)}`,
+      `    ${dim(`new OpenAI({ baseURL: "${openAIBaseUrl}" })`)}`,
     );
   }
 
@@ -104,6 +109,7 @@ export async function proxyCommand(
   }
 
   const upstream = options.upstream ?? PROVIDER_UPSTREAMS[providerLower]!;
+  const parsedUpstream = validateUpstream(upstream);
   const port = parseInt(options.port ?? "8787", 10);
   const host = "127.0.0.1";
 
@@ -176,7 +182,7 @@ export async function proxyCommand(
 
             process.stderr.write(
               yellow(
-                `Warning: Upstream and incoming request path overlap on ${duplicated}; forwarding to ${upstream}${duplicated}/...\nTo fix, remove it from --upstream or the client base URL.\n`,
+                `Warning: Upstream and incoming request path overlap on ${duplicated}; forwarding to ${warning.upstreamBaseUrl}${duplicated}/...\nTo fix, remove it from --upstream or the client base URL.\n`,
               ),
             );
           },
@@ -234,7 +240,12 @@ export async function proxyCommand(
       "",
       `  ${bold("Configure your tools:")}`,
       "",
-      getConnectionHints(canonical, baseUrl, llmApiKey !== undefined),
+      getConnectionHints(
+        canonical,
+        baseUrl,
+        parsedUpstream,
+        llmApiKey !== undefined,
+      ),
       "",
       `  ${dim("Ctrl+C to stop")}`,
       "",
@@ -346,6 +357,33 @@ async function loadNerAndSwap(
 }
 
 // --- helpers ---
+
+function validateUpstream(value: string): URL {
+  const error = (): CLIError =>
+    new CLIError(
+      `Invalid --upstream "${value}": expected an absolute http:// or https:// URL`,
+    );
+
+  if (!/^https?:\/\//i.test(value)) {
+    throw error();
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw error();
+  }
+
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.hostname === ""
+  ) {
+    throw error();
+  }
+
+  return parsed;
+}
 
 /**
  * Format a one-line stderr log for a single intercepted request, e.g.
