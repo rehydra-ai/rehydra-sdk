@@ -37,7 +37,7 @@ describe("createRehydraProxy path overlap warning", () => {
     const warnings: PathOverlapWarning[] = [];
     const proxy = createRehydraProxy(
       makeConfig({
-        upstream: "https://nano-gpt.com/api/v1",
+        upstream: "https://nano-gpt.com/api/v1/",
         onPathOverlapWarning: (warning) => warnings.push(warning),
       }),
     );
@@ -50,9 +50,13 @@ describe("createRehydraProxy path overlap warning", () => {
 
     expect(warnings).toEqual([
       {
+        upstreamBaseUrl: "https://nano-gpt.com/api/v1",
         overlappingSegments: ["v1"],
       },
     ]);
+    const warningPayload = JSON.stringify(warnings[0]);
+    expect(warningPayload).not.toContain("chat/completions");
+    expect(warningPayload).not.toContain("request_id=example");
     expect(mockRehydraFetch).toHaveBeenCalledWith(
       "https://nano-gpt.com/api/v1/v1/chat/completions?request_id=example",
       expect.any(Object),

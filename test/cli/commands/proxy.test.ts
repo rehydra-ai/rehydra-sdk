@@ -33,6 +33,7 @@ vi.mock("../../../src/index.js", async (importOriginal) => {
 
 import { createServer } from "node:http";
 import { proxyCommand } from "../../../src/cli/commands/proxy.js";
+import { CLIError } from "../../../src/cli/utils/errors.js";
 import { createRehydraProxy } from "../../../src/proxy/index.js";
 import { isModelDownloaded, downloadModel } from "../../../src/index.js";
 
@@ -125,15 +126,34 @@ describe("proxy command", () => {
       ).rejects.toThrow("Unknown provider: gemini");
     });
 
-    it("should start with an upstream that is not an absolute URL", async () => {
+    it.each([
+      "api.example.com/v1",
+      "ftp://api.example.com/v1",
+    ])("should reject invalid upstream %s before initialization", async (upstream) => {
+      const result = proxyCommand(
+        "openai",
+        makeOptions({ upstream }),
+      );
+
+      await expect(result).rejects.toBeInstanceOf(CLIError);
+      await expect(result).rejects.toThrow(
+        `Invalid --upstream "${upstream}": expected an absolute http:// or https:// URL`,
+      );
+      expect(mockCreateRehydraProxy).not.toHaveBeenCalled();
+      expect(mockCreateServer).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      "https://api.example.com/v1",
+      "http://localhost:8080/v1",
+    ])("should accept absolute HTTP(S) upstream %s", async (upstream) => {
       const exitCode = await startAndShutdown(
         "openai",
-        makeOptions({ upstream: "api.example.com/v1" }),
+        makeOptions({ upstream }),
       );
+
       expect(exitCode).toBe(0);
-      expect(mockCreateRehydraProxy.mock.calls[0]![0].upstream).toBe(
-        "api.example.com/v1",
-      );
+      expect(mockCreateRehydraProxy.mock.calls[0]![0].upstream).toBe(upstream);
     });
 
     it("should throw for invalid port", async () => {
@@ -310,13 +330,64 @@ describe("proxy command", () => {
       expect(output).toContain("anthropic");
     });
 
-    it("should show openai connection hints for openai provider", async () => {
-      const exitCode = await startAndShutdown("openai", makeOptions({ quiet: false }));
+    it("should retain /v1 in all OpenAI hints for the default upstream", async () => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({ quiet: false }),
+      );
       expect(exitCode).toBe(0);
       const output = stderrChunks.join("");
-      expect(output).toContain("OPENAI_BASE_URL");
-      expect(output).toContain("/v1");
-      expect(output).toContain("OpenAI SDK");
+      expect(output).toContain(
+        "export OPENAI_BASE_URL=http://127.0.0.1:8787/v1",
+      );
+      expect(output).toContain("    http://127.0.0.1:8787/v1");
+      expect(output).toContain(
+        'new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" })',
+      );
+    });
+
+    it.each([
+      "https://api.example.com/api/v1",
+      "https://api.example.com/api/v1/",
+    ])("should use the proxy root in all OpenAI hints for upstream %s", async (upstream) => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({ quiet: false, upstream }),
+      );
+      expect(exitCode).toBe(0);
+      const output = stderrChunks.join("");
+      expect(output).toContain(
+        "export OPENAI_BASE_URL=http://127.0.0.1:8787\n",
+      );
+      expect(output).toContain("    http://127.0.0.1:8787\n");
+      expect(output).toContain(
+        'new OpenAI({ baseURL: "http://127.0.0.1:8787" })',
+      );
+      expect(output).not.toContain(
+        'new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" })',
+      );
+    });
+
+    it.each([
+      "https://api.example.com/api/v10",
+      "https://api.example.com/api/V1",
+    ])("should retain /v1 in all OpenAI hints for upstream %s", async (upstream) => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({
+          quiet: false,
+          upstream,
+        }),
+      );
+      expect(exitCode).toBe(0);
+      const output = stderrChunks.join("");
+      expect(output).toContain(
+        "export OPENAI_BASE_URL=http://127.0.0.1:8787/v1",
+      );
+      expect(output).toContain("    http://127.0.0.1:8787/v1");
+      expect(output).toContain(
+        'new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" })',
+      );
     });
 
     it("should show NER disabled when --ner disabled", async () => {
@@ -366,6 +437,7 @@ describe("proxy command", () => {
 
   describe("path overlap warnings", () => {
     const warning = {
+      upstreamBaseUrl: "https://nano-gpt.com/api/v1",
       overlappingSegments: ["v1"],
     };
 
@@ -373,7 +445,7 @@ describe("proxy command", () => {
       const exitCode = await startAndShutdown(
         "openai",
         makeOptions({
-          upstream: "https://nano-gpt.com/api/v1",
+          upstream: "https://nano-gpt.com/api/v1/",
           quiet: false,
         }),
       );
@@ -391,6 +463,11 @@ describe("proxy command", () => {
           "forwarding to https://nano-gpt.com/api/v1/v1/...\n" +
           "To fix, remove it from --upstream or the client base URL.\n",
       );
+      expect(output).not.toContain(
+        "https://nano-gpt.com/api/v1//v1/...",
+      );
+      expect(output).not.toContain("chat/completions");
+      expect(output).not.toContain("request_id=example");
     });
 
     it("does not wire the warning callback in quiet mode", async () => {
