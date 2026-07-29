@@ -92,6 +92,7 @@ export function createRehydraProxy(
         shouldCheckPathOverlap = false;
 
         config.onPathOverlapWarning?.({
+          upstreamBaseUrl: upstream,
           overlappingSegments,
         });
       }

@@ -118,6 +118,9 @@ export interface RehydraFetchConfig {
  * Reported when the upstream base path and the incoming request path share segments
  */
 export interface PathOverlapWarning {
+  /** Configured upstream base URL with its trailing slash removed. */
+  upstreamBaseUrl: string;
+
   /**
    * Segments duplicated between the configured upstream suffix and the
    * incoming request prefix, e.g. ["api", "v1"].
