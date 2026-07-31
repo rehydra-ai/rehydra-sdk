@@ -152,8 +152,9 @@ export async function proxyCommand(
   // LLM API key — from --api-key flag or LLM_API_KEY env var
   const llmApiKey = options["api-key"] ?? process.env["LLM_API_KEY"];
 
-  // Avoid warning on every request
-  let hasShownPathOverlapWarning = false;
+  // Overlaps already reported, so each distinct one is only warned about once.
+  // Bounded by the upstream path depth — the library always reports a suffix of it.
+  const shownPathOverlaps = new Set<string>();
 
   // Build shared proxy config (without NER initially)
   const baseProxyConfig: RehydraProxyConfig = {
@@ -173,12 +174,10 @@ export async function proxyCommand(
     ...(!options.quiet
       ? {
           onPathOverlapWarning: (warning): void => {
-            if (hasShownPathOverlapWarning) return;
-
-            // Prevent multiple warnings in same session
-            hasShownPathOverlapWarning = true;
-
             const duplicated = "/" + warning.overlappingSegments.join("/");
+
+            if (shownPathOverlaps.has(duplicated)) return;
+            shownPathOverlaps.add(duplicated);
 
             process.stderr.write(
               yellow(
@@ -375,11 +374,11 @@ function validateUpstream(value: string): URL {
     throw error();
   }
 
-  if (
-    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-    parsed.hostname === ""
-  ) {
-    throw error();
+  // Reject upstream URL's with search params or hash fragments, since they won't create a valid base URL for the proxy forwarding
+  if (/[?#]/.test(parsed.href)) {
+    throw new CLIError(
+      `Invalid --upstream "${value}": must not include query parameters or hash fragment`,
+    );
   }
 
   return parsed;

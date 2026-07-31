@@ -144,6 +144,25 @@ describe("proxy command", () => {
     });
 
     it.each([
+      "https://api.example.com/v1?query=param",
+      "https://api.example.com/v1#hash",
+      "https://api.example.com/v1?",
+      "https://api.example.com/v1#",
+    ]) ("should reject upstream with query or hash %s before init", async (upstream) => {
+      const result = proxyCommand(
+        "openai",
+        makeOptions({ upstream }),
+      );
+
+      await expect(result).rejects.toBeInstanceOf(CLIError);
+      await expect(result).rejects.toThrow(
+        `Invalid --upstream "${upstream}": must not include query parameters or hash fragment`,
+      );
+      expect(mockCreateRehydraProxy).not.toHaveBeenCalled();
+      expect(mockCreateServer).not.toHaveBeenCalled();
+    });
+
+    it.each([
       "https://api.example.com/v1",
       "http://localhost:8080/v1",
     ])("should accept absolute HTTP(S) upstream %s", async (upstream) => {
@@ -504,12 +523,42 @@ describe("proxy command", () => {
       const nerConfig = mockCreateRehydraProxy.mock.calls[1]![0];
 
       initialConfig.onPathOverlapWarning!(warning);
+      initialConfig.onPathOverlapWarning!(warning);
+      nerConfig.onPathOverlapWarning!(warning);
       nerConfig.onPathOverlapWarning!(warning);
 
       const matches = stderrChunks
         .join("")
         .match(/Warning: Upstream and incoming request path/g);
       expect(matches).toHaveLength(1);
+    });
+
+    it("prints again when a later request reveals a wider overlap", async () => {
+      const exitCode = await startAndShutdown(
+        "openai",
+        makeOptions({
+          upstream: "https://nano-gpt.com/api/v1",
+          quiet: false,
+        }),
+      );
+      expect(exitCode).toBe(0);
+
+      const config = mockCreateRehydraProxy.mock.calls[0]![0];
+
+      config.onPathOverlapWarning!(warning);
+      config.onPathOverlapWarning!({
+        upstreamBaseUrl: "https://nano-gpt.com/api/v1",
+        overlappingSegments: ["api", "v1"],
+      });
+
+      const output = stderrChunks.join("");
+      const matches = output.match(
+        /Warning: Upstream and incoming request path/g,
+      );
+      expect(matches).toHaveLength(2);
+      expect(output).toContain(
+        "overlap on /api/v1; forwarding to https://nano-gpt.com/api/v1/api/v1/...",
+      );
     });
   });
 

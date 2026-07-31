@@ -154,5 +154,6 @@ export interface RehydraProxyConfig extends RehydraFetchConfig {
    */
   apiKey?: string;
 
-  onPathOverlapWarning?: (warning: PathOverlapWarning) => void;
+  /** Hook invoked for each request whose forwarded path overlaps the upstream base path */
+  onPathOverlapWarning?: (warning: PathOverlapWarning) => void | Promise<void>;
 }

@@ -38,7 +38,9 @@ describe("createRehydraProxy path overlap warning", () => {
     const proxy = createRehydraProxy(
       makeConfig({
         upstream: "https://nano-gpt.com/api/v1/",
-        onPathOverlapWarning: (warning) => warnings.push(warning),
+        onPathOverlapWarning: (warning) => {
+          warnings.push(warning);
+        },
       }),
     );
 
@@ -68,7 +70,9 @@ describe("createRehydraProxy path overlap warning", () => {
     const proxy = createRehydraProxy(
       makeConfig({
         upstream: "https://example.com/proxy/api/v1",
-        onPathOverlapWarning: (warning) => warnings.push(warning),
+        onPathOverlapWarning: (warning) => {
+          warnings.push(warning);
+        },
       }),
     );
 
@@ -169,7 +173,7 @@ describe("createRehydraProxy path overlap warning", () => {
     );
   });
 
-  it("should warn only once for repeated overlapping requests", async () => {
+  it("should warn for every overlapping request", async () => {
     const onPathOverlapWarning = vi.fn();
     const proxy = createRehydraProxy(
       makeConfig({
@@ -185,6 +189,127 @@ describe("createRehydraProxy path overlap warning", () => {
       new Request("http://127.0.0.1:8788/v1/embeddings"),
     );
 
-    expect(onPathOverlapWarning).toHaveBeenCalledTimes(1);
+    expect(onPathOverlapWarning).toHaveBeenCalledTimes(2);
   });
+
+  it("should report a wider overlap found on a later request", async () => {
+    const onPathOverlapWarning = vi.fn();
+    const proxy = createRehydraProxy(
+      makeConfig({
+        upstream: "https://example.com/api/v1",
+        onPathOverlapWarning,
+      }),
+    );
+
+    await proxy(
+      new Request("http://127.0.0.1:8788/v1/chat/completions"),
+    );
+    await proxy(
+      new Request("http://127.0.0.1:8788/api/v1/embeddings"),
+    );
+
+    expect(onPathOverlapWarning).toHaveBeenNthCalledWith(1, {
+      upstreamBaseUrl: "https://example.com/api/v1",
+      overlappingSegments: ["v1"],
+    });
+    expect(onPathOverlapWarning).toHaveBeenNthCalledWith(2, {
+      upstreamBaseUrl: "https://example.com/api/v1",
+      overlappingSegments: ["api", "v1"],
+    });
+  });
+
+  it("should continue proxying when the warning callback throws", async () => {
+    const proxy = createRehydraProxy(
+      makeConfig({
+        upstream: "https://example.com/v1",
+        onPathOverlapWarning: () => {
+          throw new Error("warning callback failed");
+        },
+      }),
+    );
+
+    const response = await proxy(
+      new Request("http://127.0.0.1:8788/v1/chat/completions"),
+    );
+
+    expect(response.status).toBe(204);
+    expect(mockRehydraFetch).toHaveBeenCalledWith(
+      "https://example.com/v1/v1/chat/completions",
+      expect.any(Object),
+    );
+  });
+
+  it("should continue proxying when an async warning callback rejects", async () => {
+    let rejectWarningCallback: (reason: Error) => void = () => {};
+    const warningCallbackResult = new Promise<void>((_resolve, reject) => {
+      rejectWarningCallback = reject;
+    });
+    const onUnhandledRejection = vi.fn();
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const proxy = createRehydraProxy(
+        makeConfig({
+          upstream: "https://example.com/v1",
+          onPathOverlapWarning: () => warningCallbackResult,
+        }),
+      );
+
+      const response = await proxy(
+        new Request("http://127.0.0.1:8788/v1/chat/completions"),
+      );
+
+      expect(response.status).toBe(204);
+      expect(mockRehydraFetch).toHaveBeenCalledWith(
+        "https://example.com/v1/v1/chat/completions",
+        expect.any(Object),
+      );
+
+      rejectWarningCallback(new Error("async warning callback failed"));
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+
+      expect(onUnhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+
+  // The callback returns an already-rejected promise, so the rejection is only
+  // handled if the proxy attaches its catch before the microtask checkpoint
+  it("should continue proxying when an async warning callback throws", async () => {
+    const onUnhandledRejection = vi.fn();
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const proxy = createRehydraProxy(
+        makeConfig({
+          upstream: "https://example.com/v1",
+          onPathOverlapWarning: async () => {
+            throw new Error("async warning callback failed");
+          },
+        }),
+      );
+
+      const response = await proxy(
+        new Request("http://127.0.0.1:8788/v1/chat/completions"),
+      );
+
+      expect(response.status).toBe(204);
+      expect(mockRehydraFetch).toHaveBeenCalledWith(
+        "https://example.com/v1/v1/chat/completions",
+        expect.any(Object),
+      );
+
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+
+      expect(onUnhandledRejection).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+  });
+
 });

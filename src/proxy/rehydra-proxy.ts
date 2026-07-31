@@ -61,8 +61,8 @@ export function createRehydraProxy(
   // Create the underlying Rehydra fetch wrapper
   const rehydraFetch = createRehydraFetch(config);
 
-  // Skip the per-request overlap check when there is no listener or upstream path segments, and stop checking after the first warning
-  let shouldCheckPathOverlap =
+  // Skip the per-request overlap check when there is no listener or upstream path segments
+  const shouldCheckPathOverlap =
     config.onPathOverlapWarning !== undefined && upstreamPathSegments.length > 0;
 
   return async (request: Request): Promise<Response> => {
@@ -89,12 +89,18 @@ export function createRehydraProxy(
       );
 
       if (overlappingSegments.length > 0) {
-        shouldCheckPathOverlap = false;
+        try {
+          const result = config.onPathOverlapWarning?.({
+            upstreamBaseUrl: upstream,
+            overlappingSegments,
+          });
 
-        config.onPathOverlapWarning?.({
-          upstreamBaseUrl: upstream,
-          overlappingSegments,
-        });
+          void Promise.resolve(result).catch(() => {
+            // Async callback failures must not interrupt proxying.
+          });
+        } catch {
+          // Synchronous callback failures must not interrupt proxying.
+        }
       }
     }
 
