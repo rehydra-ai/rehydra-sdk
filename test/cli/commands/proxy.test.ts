@@ -148,7 +148,7 @@ describe("proxy command", () => {
       "https://api.example.com/v1#hash",
       "https://api.example.com/v1?",
       "https://api.example.com/v1#",
-    ]) ("should reject upstream with query or hash %s before init", async (upstream) => {
+    ])("should reject upstream with query or hash %s before init", async (upstream) => {
       const result = proxyCommand(
         "openai",
         makeOptions({ upstream }),

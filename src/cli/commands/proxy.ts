@@ -374,7 +374,7 @@ function validateUpstream(value: string): URL {
     throw error();
   }
 
-  // Reject upstream URL's with search params or hash fragments, since they won't create a valid base URL for the proxy forwarding
+  // Reject upstream URLs with search params or hash fragments, since they won't create a valid base URL for the proxy forwarding
   if (/[?#]/.test(parsed.href)) {
     throw new CLIError(
       `Invalid --upstream "${value}": must not include query parameters or hash fragment`,
