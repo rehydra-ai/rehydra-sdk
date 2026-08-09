@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.12.0...v0.13.0) (2026-08-09)
+
+
+### Features
+
+* **proxy:** warn on duplicated path segment when upstream includes a base path ([#90](https://github.com/rehydra-ai/rehydra-sdk/issues/90)) ([6ccc372](https://github.com/rehydra-ai/rehydra-sdk/commit/6ccc372ba0b0c556f4fa8dc04d192baf63259bf8)), closes [#77](https://github.com/rehydra-ai/rehydra-sdk/issues/77)
+
 ## [0.12.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.11.1...v0.12.0) (2026-07-25)
 
 
