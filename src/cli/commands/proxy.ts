@@ -40,6 +40,7 @@ const PROVIDER_CANONICAL: Record<string, "openai" | "anthropic"> = {
 function getConnectionHints(
   provider: "openai" | "anthropic",
   baseUrl: string,
+  upstream: URL,
   hasApiKey: boolean,
 ): string {
   const lines: string[] = [];
@@ -63,16 +64,20 @@ function getConnectionHints(
       `    ${dim(baseUrl)}`,
     );
   } else {
+    const upstreamPathSegments = upstream.pathname.split("/").filter(Boolean);
+    const openAIBaseUrl =
+      upstreamPathSegments.at(-1) === "v1" ? baseUrl : `${baseUrl}/v1`;
+
     lines.push(
       `  ${bold("Environment variable")}`,
-      `    export OPENAI_BASE_URL=${baseUrl}/v1`,
+      `    export OPENAI_BASE_URL=${openAIBaseUrl}`,
       "",
       `  ${bold("Cursor")}`,
       `    Settings ${dim("→")} Models ${dim("→")} OpenAI ${dim("→")} Override Base URL`,
-      `    ${dim(baseUrl + "/v1")}`,
+      `    ${dim(openAIBaseUrl)}`,
       "",
       `  ${bold("OpenAI SDK")}`,
-      `    ${dim(`new OpenAI({ baseURL: "${baseUrl}/v1" })`)}`,
+      `    ${dim(`new OpenAI({ baseURL: "${openAIBaseUrl}" })`)}`,
     );
   }
 
@@ -104,6 +109,7 @@ export async function proxyCommand(
   }
 
   const upstream = options.upstream ?? PROVIDER_UPSTREAMS[providerLower]!;
+  const parsedUpstream = validateUpstream(upstream);
   const port = parseInt(options.port ?? "8787", 10);
   const host = "127.0.0.1";
 
@@ -146,6 +152,10 @@ export async function proxyCommand(
   // LLM API key — from --api-key flag or LLM_API_KEY env var
   const llmApiKey = options["api-key"] ?? process.env["LLM_API_KEY"];
 
+  // Overlaps already reported, so each distinct one is only warned about once.
+  // Bounded by the upstream path depth — the library always reports a suffix of it.
+  const shownPathOverlaps = new Set<string>();
+
   // Build shared proxy config (without NER initially)
   const baseProxyConfig: RehydraProxyConfig = {
     upstream,
@@ -159,6 +169,25 @@ export async function proxyCommand(
     policy,
     locale: options.locale,
     apiKey: llmApiKey,
+
+    // Warn about overlapping paths without exposing request paths or queries
+    ...(!options.quiet
+      ? {
+          onPathOverlapWarning: (warning): void => {
+            const duplicated = "/" + warning.overlappingSegments.join("/");
+
+            if (shownPathOverlaps.has(duplicated)) return;
+            shownPathOverlaps.add(duplicated);
+
+            process.stderr.write(
+              yellow(
+                `Warning: Upstream and incoming request path overlap on ${duplicated}; forwarding to ${warning.upstreamBaseUrl}${duplicated}/...\nTo fix, remove it from --upstream or the client base URL.\n`,
+              ),
+            );
+          },
+        }
+      : {}),
+
     // With --verbose, log per-request anonymization to stderr (never raw PII)
     ...(options.verbose && !options.quiet
       ? {
@@ -210,7 +239,12 @@ export async function proxyCommand(
       "",
       `  ${bold("Configure your tools:")}`,
       "",
-      getConnectionHints(canonical, baseUrl, llmApiKey !== undefined),
+      getConnectionHints(
+        canonical,
+        baseUrl,
+        parsedUpstream,
+        llmApiKey !== undefined,
+      ),
       "",
       `  ${dim("Ctrl+C to stop")}`,
       "",
@@ -322,6 +356,33 @@ async function loadNerAndSwap(
 }
 
 // --- helpers ---
+
+function validateUpstream(value: string): URL {
+  const error = (): CLIError =>
+    new CLIError(
+      `Invalid --upstream "${value}": expected an absolute http:// or https:// URL`,
+    );
+
+  if (!/^https?:\/\//i.test(value)) {
+    throw error();
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw error();
+  }
+
+  // Reject upstream URLs with search params or hash fragments, since they won't create a valid base URL for the proxy forwarding
+  if (/[?#]/.test(parsed.href)) {
+    throw new CLIError(
+      `Invalid --upstream "${value}": must not include query parameters or hash fragment`,
+    );
+  }
+
+  return parsed;
+}
 
 /**
  * Format a one-line stderr log for a single intercepted request, e.g.

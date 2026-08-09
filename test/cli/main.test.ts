@@ -88,6 +88,7 @@ describe("run()", () => {
     expect(output).toContain("proxy <provider>");
     expect(output).toContain("--port");
     expect(output).toContain("--upstream");
+    expect(output).toContain("Absolute HTTP(S) upstream URL");
   });
 
   it("should dispatch proxy command (missing provider error)", async () => {

@@ -54,9 +54,16 @@ export function createRehydraProxy(
 ): (request: Request) => Promise<Response> {
   const forwardHeaders = config.forwardHeaders ?? DEFAULT_FORWARD_HEADERS;
   const upstream = config.upstream.replace(/\/$/, ""); // Remove trailing slash
+  // Base path of the upstream, used only for overlap detection. Invalid upstream URL will throw at fetch time
+  const upstreamPathname = tryGetPathname(upstream);
+  const upstreamPathSegments = upstreamPathname.split("/").filter(Boolean);
 
   // Create the underlying Rehydra fetch wrapper
   const rehydraFetch = createRehydraFetch(config);
+
+  // Skip the per-request overlap check when there is no listener or upstream path segments
+  const shouldCheckPathOverlap =
+    config.onPathOverlapWarning !== undefined && upstreamPathSegments.length > 0;
 
   return async (request: Request): Promise<Response> => {
     // Build upstream URL
@@ -72,6 +79,30 @@ export function createRehydraProxy(
     }
 
     const upstreamUrl = upstream + pathname + requestUrl.search;
+
+    // Detect overlapping path and warn
+    if (shouldCheckPathOverlap) {
+      const requestPathSegments = pathname.split("/").filter(Boolean);
+      const overlappingSegments = findPathSegmentOverlap(
+        upstreamPathSegments,
+        requestPathSegments,
+      );
+
+      if (overlappingSegments.length > 0) {
+        try {
+          const result = config.onPathOverlapWarning?.({
+            upstreamBaseUrl: upstream,
+            overlappingSegments,
+          });
+
+          void Promise.resolve(result).catch(() => {
+            // Async callback failures must not interrupt proxying.
+          });
+        } catch {
+          // Synchronous callback failures must not interrupt proxying.
+        }
+      }
+    }
 
     // Filter headers to forward
     const headers = new Headers();
@@ -110,4 +141,39 @@ export function createRehydraProxy(
       duplex: "half",
     });
   };
+}
+
+// Returns the URL's pathname, or an empty string if invalid
+function tryGetPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "";
+  }
+}
+
+// Finds the overlapping path segments between the upstream and request paths.
+function findPathSegmentOverlap(
+  upstreamSegments: string[],
+  requestSegments: string[],
+): string[] {
+  const maxOverlapLength = Math.min(
+    upstreamSegments.length,
+    requestSegments.length,
+  );
+
+  for (let length = maxOverlapLength; length > 0; length--) {
+    const upstreamSuffix = upstreamSegments.slice(-length);
+    const requestPrefix = requestSegments.slice(0, length);
+
+    const matches = upstreamSuffix.every(
+      (segment, index) => segment === requestPrefix[index],
+    );
+
+    if (matches) {
+      return upstreamSuffix;
+    }
+  }
+
+  return [];
 }

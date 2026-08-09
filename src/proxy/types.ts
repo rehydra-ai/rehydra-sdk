@@ -115,6 +115,20 @@ export interface RehydraFetchConfig {
 }
 
 /**
+ * Reported when the upstream base path and the incoming request path share segments
+ */
+export interface PathOverlapWarning {
+  /** Configured upstream base URL with its trailing slash removed. */
+  upstreamBaseUrl: string;
+
+  /**
+   * Segments duplicated between the configured upstream suffix and the
+   * incoming request prefix, e.g. ["api", "v1"].
+   */
+  overlappingSegments: string[];
+}
+
+/**
  * Configuration for the Rehydra proxy middleware
  */
 export interface RehydraProxyConfig extends RehydraFetchConfig {
@@ -139,4 +153,7 @@ export interface RehydraProxyConfig extends RehydraFetchConfig {
    * For OpenAI: sent as `Authorization: Bearer <key>`
    */
   apiKey?: string;
+
+  /** Hook invoked for each request whose forwarded path overlaps the upstream base path */
+  onPathOverlapWarning?: (warning: PathOverlapWarning) => void | Promise<void>;
 }
