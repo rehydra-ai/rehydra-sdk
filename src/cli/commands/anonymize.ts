@@ -5,6 +5,7 @@ import {
   type NERConfig,
   type SecretsConfig,
   type AnonymizationPolicy,
+  type TagId,
   PIIType,
   mergePolicy,
   generateKey,
@@ -251,7 +252,7 @@ async function anonymizeFile(
   policy: Partial<AnonymizationPolicy> | undefined,
 ): Promise<number> {
   const countsByType: Record<string, number> = {};
-  const allEntities: { type: string; id: number; confidence: number; source: string; semantic?: unknown }[] = [];
+  const allEntities: { type: string; id: TagId; confidence: number; source: string; semantic?: unknown }[] = [];
   const textChunks: string[] = [];
   let finishData: StreamFinishEvent | undefined;
 

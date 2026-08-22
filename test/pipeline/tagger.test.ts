@@ -1381,4 +1381,231 @@ describe("Tagger", () => {
       expect(second.anonymizedText).toBe('pay <PII type="AMOUNT" id="1"/> again');
     });
   });
+
+  // =========================================================================
+  // Alphanumeric tag ids (GitHub issue #91)
+  // =========================================================================
+  describe("alphanumeric tag ids (issue #91)", () => {
+    const span = (type: PIIType, text: string, start: number): SpanMatch => ({
+      type,
+      text,
+      start,
+      end: start + text.length,
+      confidence: 0.9,
+      source: DetectionSource.REGEX,
+    });
+
+    describe("generateTag / createPIIMapKey", () => {
+      it("should accept string ids", () => {
+        expect(generateTag(PIIType.PERSON, "a4f2c9")).toBe(
+          '<PII type="PERSON" id="a4f2c9"/>'
+        );
+        expect(createPIIMapKey(PIIType.PERSON, "a4f2c9")).toBe("PERSON_a4f2c9");
+      });
+
+      it("should still accept numeric ids unchanged", () => {
+        expect(generateTag(PIIType.PERSON, 7)).toBe('<PII type="PERSON" id="7"/>');
+        expect(createPIIMapKey(PIIType.PERSON, 7)).toBe("PERSON_7");
+      });
+    });
+
+    describe("parseTag", () => {
+      it("should parse alphanumeric ids as strings", () => {
+        expect(parseTag('<PII type="PERSON" id="a4f2c9"/>')).toEqual({
+          type: PIIType.PERSON,
+          id: "a4f2c9",
+          semantic: undefined,
+        });
+      });
+
+      it("should keep decimal-only ids as numbers", () => {
+        expect(parseTag('<PII type="PERSON" id="42"/>')?.id).toBe(42);
+      });
+
+      it("should reject uppercase, separators and empty ids", () => {
+        expect(parseTag('<PII type="PERSON" id="A4F2C9"/>')).toBeNull();
+        expect(parseTag('<PII type="PERSON" id="a4-f2"/>')).toBeNull();
+        expect(parseTag('<PII type="PERSON" id="a4_f2"/>')).toBeNull();
+        expect(parseTag('<PII type="PERSON" id=""/>')).toBeNull();
+      });
+
+      it("should parse alphanumeric ids with semantic attributes", () => {
+        expect(
+          parseTag('<PII type="PERSON" gender="female" id="x1y2z3"/>')
+        ).toEqual({
+          type: PIIType.PERSON,
+          id: "x1y2z3",
+          semantic: { gender: "female" },
+        });
+      });
+    });
+
+    describe("extractTags (fuzzy)", () => {
+      it("should extract alphanumeric ids", () => {
+        const tags = extractTags('Hi <PII type="PERSON" id="a4f2c9"/>');
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.id).toBe("a4f2c9");
+      });
+
+      it("should fold a case-mangled id back to lowercase", () => {
+        const tags = extractTags('Hi <pii Type="person" Id="A4F2C9" />');
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.type).toBe(PIIType.PERSON);
+        expect(tags[0]?.id).toBe("a4f2c9");
+      });
+
+      it("should handle alphanumeric ids with attribute reordering", () => {
+        const tags = extractTags('<PII id="a4f2c9" type="PERSON"/>');
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.id).toBe("a4f2c9");
+      });
+
+      it("should handle alphanumeric ids with a leaked close delimiter", () => {
+        const tags = extractTags('<PII type="PERSON" id="a4f2c9/>"');
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.id).toBe("a4f2c9");
+      });
+
+      it("should handle alphanumeric ids with HTML-encoded brackets", () => {
+        const tags = extractTags('&lt;PII type="PERSON" id="a4f2c9"/&gt;');
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.id).toBe("a4f2c9");
+      });
+
+      it("should keep decimal-only ids numeric", () => {
+        expect(extractTags('<PII type="PERSON" id="12"/>')[0]?.id).toBe(12);
+      });
+    });
+
+    describe("extractTagsStrict", () => {
+      it("should extract alphanumeric ids", () => {
+        const tags = extractTagsStrict('<PII type="PERSON" id="a4f2c9"/>');
+        expect(tags).toHaveLength(1);
+        expect(tags[0]?.id).toBe("a4f2c9");
+      });
+
+      it("should not match uppercase ids", () => {
+        expect(extractTagsStrict('<PII type="PERSON" id="A4F2C9"/>')).toEqual([]);
+      });
+    });
+
+    describe("rehydrate", () => {
+      it("should rehydrate alphanumeric ids", () => {
+        const piiMap: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        expect(rehydrate('Hi <PII type="PERSON" id="a4f2c9"/>', piiMap)).toBe(
+          "Hi Alice"
+        );
+        expect(
+          rehydrate('Hi <PII type="PERSON" id="a4f2c9"/>', piiMap, true)
+        ).toBe("Hi Alice");
+      });
+
+      it("should rehydrate a case-mangled alphanumeric id", () => {
+        const piiMap: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        expect(rehydrate('Hi <PII type="PERSON" id="A4F2C9"/>', piiMap)).toBe(
+          "Hi Alice"
+        );
+      });
+
+      it("should leave an unknown alphanumeric id as a visible tag", () => {
+        const piiMap: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        const text = 'Hi <PII type="PERSON" id="deadbeef"/>';
+        expect(rehydrate(text, piiMap)).toBe(text);
+      });
+
+      it("should rehydrate mixed numeric and alphanumeric ids", () => {
+        const piiMap: RawPIIMap = new Map([
+          ["PERSON_1", "Alice"],
+          ["EMAIL_k9m2p", "alice@acme.com"],
+        ]);
+        expect(
+          rehydrate(
+            '<PII type="PERSON" id="1"/> <<PII type="EMAIL" id="k9m2p"/>>',
+            piiMap
+          )
+        ).toBe("Alice <alice@acme.com>");
+      });
+    });
+
+    describe("tagEntities with alphanumeric ids in existingPiiMap", () => {
+      it("should reuse an alphanumeric id for a known value", () => {
+        const existing: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        const result = tagEntities(
+          "Hi Alice",
+          [span(PIIType.PERSON, "Alice", 3)],
+          defaultPolicy,
+          existing
+        );
+        expect(result.anonymizedText).toBe('Hi <PII type="PERSON" id="a4f2c9"/>');
+        expect(result.entities[0]?.id).toBe("a4f2c9");
+        expect(result.piiMap.get("PERSON_a4f2c9")).toBe("Alice");
+      });
+
+      it("should compute maxId from numeric ids only", () => {
+        const existing: RawPIIMap = new Map([
+          ["PERSON_a4f2c9", "Alice"],
+          ["PERSON_2", "Bob"],
+          ["EMAIL_zzzzzzzz", "bob@acme.com"],
+        ]);
+        const result = tagEntities(
+          "Hi Carol",
+          [span(PIIType.PERSON, "Carol", 3)],
+          defaultPolicy,
+          existing
+        );
+        // Alphanumeric ids must not influence the counter: next is 2 + 1.
+        expect(result.anonymizedText).toBe('Hi <PII type="PERSON" id="3"/>');
+        expect(result.entities[0]?.id).toBe(3);
+      });
+
+      it("should start at 1 when the existing map has only alphanumeric ids", () => {
+        const existing: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        const result = tagEntities(
+          "Hi Carol",
+          [span(PIIType.PERSON, "Carol", 3)],
+          defaultPolicy,
+          existing
+        );
+        expect(result.anonymizedText).toBe('Hi <PII type="PERSON" id="1"/>');
+      });
+
+      it("should reuse an alphanumeric id for repeated occurrences in one call", () => {
+        const existing: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        const result = tagEntities(
+          "Alice and Alice",
+          [span(PIIType.PERSON, "Alice", 0), span(PIIType.PERSON, "Alice", 10)],
+          { ...defaultPolicy, reuseIdsForRepeatedPII: false },
+          existing
+        );
+        expect(result.anonymizedText).toBe(
+          '<PII type="PERSON" id="a4f2c9"/> and <PII type="PERSON" id="a4f2c9"/>'
+        );
+      });
+
+      it("should ignore existing keys with invalid ids", () => {
+        const existing: RawPIIMap = new Map([
+          ["PERSON_A4F2C9", "Alice"],
+          ["PERSON_a4-f2", "Alice"],
+        ]);
+        const result = tagEntities(
+          "Hi Alice",
+          [span(PIIType.PERSON, "Alice", 3)],
+          defaultPolicy,
+          existing
+        );
+        expect(result.anonymizedText).toBe('Hi <PII type="PERSON" id="1"/>');
+      });
+
+      it("should round-trip an alphanumeric id through tagEntities and rehydrate", () => {
+        const existing: RawPIIMap = new Map([["PERSON_a4f2c9", "Alice"]]);
+        const result = tagEntities(
+          "Hi Alice",
+          [span(PIIType.PERSON, "Alice", 3)],
+          defaultPolicy,
+          existing
+        );
+        expect(rehydrate(result.anonymizedText, result.piiMap)).toBe("Hi Alice");
+      });
+    });
+  });
 });

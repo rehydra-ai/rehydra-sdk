@@ -129,6 +129,26 @@ Purpose-built for LLM token streams. A sentence-buffered chunking system with NE
 
 Optional gender and scope attributes on PII tags (`<PII type="PERSON" gender="male" id="1"/>`, `<PII type="LOCATION" scope="city" id="2"/>`) preserve grammatical context for downstream systems.
 
+### Stable external tag IDs
+
+Callers that manage PII maps across independent anonymization calls can seed lowercase alphanumeric IDs through `existingPiiMap`. This allows an ID to be derived from the value it masks, for example with a keyed HMAC, instead of depending on a per-call counter.
+
+```typescript
+const existingPiiMap = new Map([
+  ['EMAIL_a4f2c9d8e7b6q', 'alice@acme.com'],
+]);
+
+const result = await anonymizer.anonymize(
+  'Email alice@acme.com',
+  undefined,
+  policy,
+  existingPiiMap,
+);
+// → 'Email <PII type="EMAIL" id="a4f2c9d8e7b6q"/>'
+```
+
+External IDs must match `[0-9a-z]+`. Decimal-only IDs retain their existing numeric behavior. Avoid IDs beginning with recognizer prefixes such as `case`, `file`, `ref`, or `ticket`, and avoid runs of seven or more digits; those shapes may themselves be detected as case IDs or phone numbers inside an inbound tag.
+
 ## Example: Full Round-Trip with Sessions
 
 ```typescript

@@ -116,13 +116,24 @@ export interface SemanticConfig {
 }
 
 /**
+ * Identifier of a PII tag.
+ *
+ * IDs assigned by the tagger are 1-based, monotonically increasing numbers.
+ * Externally generated IDs (e.g. seeded through an existing PII map) may also
+ * be lowercase alphanumeric strings (`[0-9a-z]+`), which lets callers derive a
+ * stable ID from the value it masks. Decimal-only IDs are always represented
+ * as numbers; any ID containing letters is represented as a lowercase string.
+ */
+export type TagId = number | string;
+
+/**
  * A detected PII entity with its position and metadata
  */
 export interface DetectedEntity {
   /** PII category */
   type: PIIType;
-  /** Unique identifier within the document (1-based, monotonically increasing) */
-  id: number;
+  /** Unique identifier within the document (see {@link TagId}) */
+  id: TagId;
   /** Start character offset in original text (0-based, inclusive) */
   start: number;
   /** End character offset in original text (0-based, exclusive) */
