@@ -10,10 +10,31 @@ import {
   AnonymizationPolicy,
   SemanticAttributes,
   TagFormat,
+  TagId,
   DEFAULT_TAG_FORMAT,
 } from "../types/index.js";
 import { sortSpansByPosition } from "../utils/offsets.js";
 import { escapeRegExp } from "../utils/regex.js";
+
+/**
+ * Character class for tag IDs.
+ *
+ * Lowercase alphanumerics only: decimal digits keep counter-assigned IDs
+ * working unchanged, while letters give callers enough space to seed
+ * value-derived IDs without relying on long decimal strings. Uppercase is
+ * excluded so a PII map key `${TYPE}_${id}` stays unambiguous — types are
+ * `[A-Z_]+` and may themselves contain underscores.
+ */
+const ID_CHARS = "[0-9a-z]+";
+
+/**
+ * Converts a raw id attribute value into a {@link TagId}.
+ * Decimal-only IDs become numbers (preserving the existing numeric API);
+ * everything else is folded to a lowercase string.
+ */
+function parseTagId(raw: string): TagId {
+  return /^[0-9]+$/.test(raw) ? parseInt(raw, 10) : raw.toLowerCase();
+}
 
 /**
  * PII Map entry (before encryption)
@@ -22,7 +43,7 @@ export interface PIIMapEntry {
   /** PII type */
   type: PIIType;
   /** Entity ID */
-  id: number;
+  id: TagId;
   /** Original text */
   original: string;
 }
@@ -54,7 +75,7 @@ export interface TaggingResult {
  */
 export function generateTag(
   type: PIIType,
-  id: number,
+  id: TagId,
   semantic?: SemanticAttributes,
   tagFormat: TagFormat = DEFAULT_TAG_FORMAT
 ): string {
@@ -79,7 +100,7 @@ export function generateTag(
  */
 export interface ParsedTag {
   type: PIIType;
-  id: number;
+  id: TagId;
   semantic?: SemanticAttributes;
 }
 
@@ -103,7 +124,7 @@ export function parseTag(
   // Build regex dynamically from tag format
   const match = tag.match(
     new RegExp(
-      `^${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="([\\w-]+)")?\\s+id="(\\d+)"\\s*${close}$`
+      `^${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="([\\w-]+)")?\\s+id="(${ID_CHARS})"\\s*${close}$`
     )
   );
 
@@ -120,7 +141,7 @@ export function parseTag(
   // may emit types that are not members of the PIIType enum. Downstream code
   // treats `type` as an opaque string when building PII map keys.
   const type = typeStr as PIIType;
-  const id = parseInt(idStr, 10);
+  const id = parseTagId(idStr);
 
   // Build semantic attributes if present
   let semantic: SemanticAttributes | undefined;
@@ -151,7 +172,7 @@ export function parseTag(
 /**
  * Creates a key for the PII map
  */
-export function createPIIMapKey(type: PIIType, id: number): string {
+export function createPIIMapKey(type: PIIType, id: TagId): string {
   return `${type}_${id}`;
 }
 
@@ -160,28 +181,28 @@ export function createPIIMapKey(type: PIIType, id: number): string {
  * @param key - Key in format "TYPE_ID" (e.g., "PERSON_1")
  * @returns Parsed type and id, or null if invalid
  */
-function parsePIIMapKey(key: string): { type: PIIType; id: number } | null {
-  const match = key.match(/^([A-Z_]+)_(\d+)$/);
+function parsePIIMapKey(key: string): { type: PIIType; id: TagId } | null {
+  const match = key.match(new RegExp(`^([A-Z_]+)_(${ID_CHARS})$`));
   if (!match || match[1] === undefined || match[2] === undefined) {
     return null;
   }
   // Allow any [A-Z_]+ type — matches what parseTag accepts, so custom-type
   // entries survive `buildExistingEntityLookup` and session-level ID reuse.
   const type = match[1] as PIIType;
-  const id = parseInt(match[2], 10);
+  const id = parseTagId(match[2]);
   return { type, id };
 }
 
 /**
  * Builds a reverse lookup and max ID from an existing PII map
  * @param existingPiiMap - Existing PII map (key → value)
- * @returns Reverse lookup (type:value → id) and global max ID
+ * @returns Reverse lookup (type:value → id) and global max numeric ID
  */
 function buildExistingEntityLookup(existingPiiMap: RawPIIMap): {
-  reverseLookup: Map<string, number>;
+  reverseLookup: Map<string, TagId>;
   maxId: number;
 } {
-  const reverseLookup = new Map<string, number>(); // "TYPE:value" → id
+  const reverseLookup = new Map<string, TagId>(); // "TYPE:value" → id
   let maxId = 0;
 
   for (const [key, value] of existingPiiMap) {
@@ -191,8 +212,9 @@ function buildExistingEntityLookup(existingPiiMap: RawPIIMap): {
       const lookupKey = `${parsed.type}:${value}`;
       reverseLookup.set(lookupKey, parsed.id);
 
-      // Track global max ID
-      if (parsed.id > maxId) {
+      // Track global max ID. Only numeric IDs feed the counter — an
+      // alphanumeric ID has no successor, so it must not affect `nextId`.
+      if (typeof parsed.id === "number" && parsed.id > maxId) {
         maxId = parsed.id;
       }
     }
@@ -230,19 +252,19 @@ export function tagEntities(
   // Build lookup from existing PII map (if provided)
   const { reverseLookup, maxId } = existingPiiMap
     ? buildExistingEntityLookup(existingPiiMap)
-    : { reverseLookup: new Map<string, number>(), maxId: 0 };
+    : { reverseLookup: new Map<string, TagId>(), maxId: 0 };
 
   // Assign IDs
-  const entitiesWithIds: Array<SpanMatch & { id: number }> = [];
+  const entitiesWithIds: Array<SpanMatch & { id: TagId }> = [];
 
   // Global ID counter (starts from max existing + 1)
   let nextId = maxId + 1;
 
   // Track seen text for ID reuse within this call (if enabled)
-  const seenText = new Map<string, number>(); // "type:text" -> id
+  const seenText = new Map<string, TagId>(); // "type:text" -> id
 
   for (const match of sortedAscending) {
-    let id: number;
+    let id: TagId;
     const lookupKey = `${match.type}:${match.text}`;
 
     // First, check if this value exists in the existing PII map (session-level reuse)
@@ -324,7 +346,7 @@ export function isValidTag(
  */
 export interface ExtractedTag {
   type: PIIType;
-  id: number;
+  id: TagId;
   position: number;
   /** The actual matched text (needed for replacement when tag is mangled) */
   matchedText: string;
@@ -456,7 +478,7 @@ function buildFuzzyTagPatterns(
   const typeAttr = `type${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}([A-Z_]+)${QUOTE_CHARS}`;
   // Pattern for id attribute: id = "VALUE" (flexible spacing and quotes)
   // Also handles malformed cases where close delimiter got placed inside the quotes
-  const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\d+)${idCloseLeak}${QUOTE_CHARS}`;
+  const idAttr = `id${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(${ID_CHARS})${idCloseLeak}${QUOTE_CHARS}`;
   // Optional gender attribute
   const genderAttr = `(?:${FLEXIBLE_WS}gender${FLEXIBLE_WS}=${FLEXIBLE_WS}${QUOTE_CHARS}(\\w+)${QUOTE_CHARS})?`;
   // Optional scope attribute
@@ -540,7 +562,9 @@ export function extractTags(
         // createCustomIdRecognizer may emit types that are not PIIType enum
         // members; rehydrate() must still be able to restore them.
         const type = typeStr.toUpperCase() as PIIType;
-        const id = parseInt(idStr, 10);
+        // Fuzzy matching is case-insensitive, so fold the id back to lowercase
+        // (lossless: ids never contain uppercase).
+        const id = parseTagId(idStr);
 
         // Build semantic attributes if present
         let semantic: SemanticAttributes | undefined;
@@ -604,7 +628,7 @@ export function extractTagsStrict(
   const close = escapeRegExp(tagFormat.close);
   // Pattern matches: OPEN KEYWORD type="X" [gender="Y"] [scope="Z"] id="N" CLOSE
   const tagPattern = new RegExp(
-    `${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="([\\w-]+)")?\\s+id="(\\d+)"\\s*${close}`,
+    `${open}${escapeRegExp(keyword)}\\s+type="([A-Z_]+)"(?:\\s+gender="(\\w+)")?(?:\\s+scope="([\\w-]+)")?\\s+id="(${ID_CHARS})"\\s*${close}`,
     "g"
   );
 
@@ -618,7 +642,7 @@ export function extractTagsStrict(
     if (typeStr !== undefined && idStr !== undefined) {
       // Accept any [A-Z_]+ type (see extractTags for rationale).
       const type = typeStr as PIIType;
-      const id = parseInt(idStr, 10);
+      const id = parseTagId(idStr);
 
       // Build semantic attributes if present
       let semantic: SemanticAttributes | undefined;

@@ -11,6 +11,7 @@ import {
   InMemoryKeyProvider,
   InMemoryPIIStorageProvider,
   decryptPIIMap,
+  rehydrate,
 } from '../../src/index.js';
 
 describe('Anonymizer Integration', () => {
@@ -727,3 +728,63 @@ describe('custom type round-trip (issue #68)', () => {
   });
 });
 
+describe('alphanumeric tag ids (issue #91)', () => {
+  // Regression test for https://github.com/rehydra-ai/rehydra-sdk/issues/91
+  // Callers may seed value-derived, lowercase alphanumeric ids through an
+  // existing PII map. Those ids must survive anonymize → rehydrate, must not
+  // be mangled by numeric recognizers, and must not disturb the numeric counter.
+  const policy = {
+    enabledTypes: new Set([PIIType.EMAIL, PIIType.CREDIT_CARD, PIIType.PHONE]),
+    regexEnabledTypes: new Set([PIIType.EMAIL, PIIType.CREDIT_CARD, PIIType.PHONE]),
+    reuseIdsForRepeatedPII: true,
+  };
+
+  it('reuses a seeded alphanumeric id and leaves the numeric counter intact', async () => {
+    const anon = createAnonymizer({
+      ner: { mode: 'disabled' },
+      keyProvider: new InMemoryKeyProvider(),
+    });
+    await anon.initialize();
+
+    const existing = new Map<string, string>([
+      ['EMAIL_k9m2p7', 'alice@acme.com'],
+      ['EMAIL_4', 'carol@acme.com'],
+    ]);
+    const result = await anon.anonymize(
+      'Reach alice@acme.com or bob@acme.com',
+      undefined,
+      policy,
+      existing
+    );
+
+    expect(result.anonymizedText).toBe(
+      'Reach <PII type="EMAIL" id="k9m2p7"/> or <PII type="EMAIL" id="5"/>'
+    );
+    expect(result.entities.map((e) => e.id)).toEqual(['k9m2p7', 5]);
+  });
+
+  it('does not destroy an alphanumeric tag with numeric recognizers', async () => {
+    // A long decimal id may be matched by the credit-card / phone recognizers
+    // (see the issue). A mixed id without long digit runs avoids that conflict.
+    const text = 'Earlier: <PII type="PERSON" id="a4f2c9d8e7b6q"/>';
+    const result = await anonymizeRegexOnly(text, policy);
+    expect(result.anonymizedText).toBe(text);
+    expect(result.entities).toHaveLength(0);
+  });
+
+  it('round-trips an alphanumeric id through anonymize and rehydrate', async () => {
+    const keyProvider = new InMemoryKeyProvider();
+    const anon = createAnonymizer({ ner: { mode: 'disabled' }, keyProvider });
+    await anon.initialize();
+
+    const existing = new Map<string, string>([['EMAIL_k9m2p7', 'alice@acme.com']]);
+    const result = await anon.anonymize('Reach alice@acme.com', undefined, policy, existing);
+    expect(result.anonymizedText).toBe('Reach <PII type="EMAIL" id="k9m2p7"/>');
+
+    const piiMap = await decryptPIIMap(result.piiMap, await keyProvider.getKey());
+    expect(piiMap.get('EMAIL_k9m2p7')).toBe('alice@acme.com');
+    expect(rehydrate(result.anonymizedText, piiMap)).toBe('Reach alice@acme.com');
+    // Case-mangled by a model: still resolves.
+    expect(rehydrate('Reach <PII type="EMAIL" id="K9M2P7"/>', piiMap)).toBe('Reach alice@acme.com');
+  });
+});

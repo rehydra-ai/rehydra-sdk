@@ -3,7 +3,7 @@
  * Validates anonymized output and performs leak scan
  */
 
-import { PIIType, DetectedEntity, AnonymizationPolicy, TagFormat, DEFAULT_TAG_FORMAT } from '../types/index.js';
+import { PIIType, DetectedEntity, AnonymizationPolicy, TagFormat, TagId, DEFAULT_TAG_FORMAT } from '../types/index.js';
 import { spansOverlap } from '../utils/offsets.js';
 import { extractTags, isValidTag } from './tagger.js';
 import { escapeRegExp } from '../utils/regex.js';
@@ -182,7 +182,7 @@ function checkOverlappingEntities(entities: DetectedEntity[]): ValidationError[]
  */
 function checkUniqueIds(entities: DetectedEntity[]): ValidationError[] {
   const errors: ValidationError[] = [];
-  const seenIds = new Map<number, DetectedEntity>();
+  const seenIds = new Map<TagId, DetectedEntity>();
 
   for (const entity of entities) {
     const existing = seenIds.get(entity.id);
