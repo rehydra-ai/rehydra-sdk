@@ -32,6 +32,7 @@ function toolPart(
   output: string,
   sessionID = "ses-1",
   messageID = "msg-1",
+  command = "echo test",
 ): Record<string, unknown> {
   return {
     id: `part-${Math.random().toString(36).slice(2, 8)}`,
@@ -42,7 +43,7 @@ function toolPart(
     tool: "bash",
     state: {
       status: "completed",
-      input: { command: "echo test" },
+      input: { command },
       output,
       title: "bash",
       metadata: {},
@@ -209,6 +210,74 @@ describe("OpenCode Plugin", () => {
 
       const text = (output.messages[0]!.parts[0] as { text: string }).text;
       expect(text).toBe(originalText);
+    });
+
+    it("should anonymize GitHub participants only in gh output when enabled", async () => {
+      const githubPlugin = createRehydraPlugin({ githubIdentities: true });
+      const githubHooks = (await githubPlugin(mockCtx())) as Record<
+        string,
+        (...args: any[]) => Promise<void>
+      >;
+      const output = {
+        messages: [
+          message(
+            "assistant",
+            [
+              toolPart(
+                "author:\talice-dev\nreviewers:\toctocat (Approved)\n{\"author\":{\"login\":\"json-user\"}}\n--\n@alice-dev asked @octocat and @json-user to check @rehydra/opencode",
+                "ses-github",
+                "msg-github",
+                "gh pr view 42 --comments",
+              ),
+            ],
+            "ses-github",
+          ),
+        ],
+      };
+
+      await githubHooks["experimental.chat.messages.transform"]!({}, output);
+
+      const state = (
+        output.messages[0]!.parts[0] as { state: { output: string } }
+      ).state;
+      expect(state.output).not.toContain("alice-dev");
+      expect(state.output).not.toContain("octocat");
+      expect(state.output).not.toContain("json-user");
+      expect(state.output).toContain("@rehydra/opencode");
+      expect(state.output.match(/GITHUB_USERNAME/g)).toHaveLength(6);
+
+      const args = {
+        args: { command: `gh pr comment 42 --body '${state.output}'` },
+      };
+      await githubHooks["tool.execute.before"]!(
+        { tool: "bash", sessionID: "ses-github", callID: "call-github" },
+        args,
+      );
+      expect(args.args.command).toContain("@alice-dev");
+      expect(args.args.command).toContain("@octocat");
+      expect(args.args.command).toContain("@json-user");
+    });
+
+    it("should leave GitHub-like names in unrelated tool output", async () => {
+      const githubPlugin = createRehydraPlugin({ githubIdentities: true });
+      const githubHooks = (await githubPlugin(mockCtx())) as Record<
+        string,
+        (...args: any[]) => Promise<void>
+      >;
+      const output = {
+        messages: [
+          message("assistant", [
+            toolPart("author:\talice-dev\n@alice-dev"),
+          ]),
+        ],
+      };
+
+      await githubHooks["experimental.chat.messages.transform"]!({}, output);
+
+      const state = (
+        output.messages[0]!.parts[0] as { state: { output: string } }
+      ).state;
+      expect(state.output).toContain("alice-dev");
     });
   });
 

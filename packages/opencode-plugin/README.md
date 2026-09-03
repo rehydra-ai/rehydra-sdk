@@ -41,8 +41,16 @@ export default createRehydraPlugin({
 
   // Disable detection of specific PII types
   disableTypes: ["URL", "IP_ADDRESS"],
+
+  // Redact participant logins in gh pr and gh api output
+  githubIdentities: true,
 });
 ```
+
+`githubIdentities` detects logins in GitHub CLI author, assignee, reviewer, and
+JSON `login` fields, then redacts every occurrence of those logins in that tool
+output. It does not redact npm scopes or other `@` identifiers in unrelated
+commands. Display names require the optional local NER model.
 
 ## What gets detected
 

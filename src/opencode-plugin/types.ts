@@ -28,6 +28,9 @@ export interface RehydraPluginOptions {
   /** Locale hint for anonymization */
   locale?: string;
 
+  /** Redact participant logins found in GitHub CLI pull request output */
+  githubIdentities?: boolean;
+
   /** Policy overrides */
   policy?: Partial<AnonymizationPolicy>;
 

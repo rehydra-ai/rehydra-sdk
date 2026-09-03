@@ -20,6 +20,7 @@ import type { AnonymizationPolicy } from "../types/index.js";
 import type { PIITypeName, RehydraPluginOptions } from "./types.js";
 import { buildPIISystemInstruction } from "../proxy/system-instruction.js";
 import { buildTagPrefix } from "../utils/regex.js";
+import { githubUsernameRecognizer } from "./github-username.js";
 
 /**
  * OpenCode Plugin types — matches signatures from @opencode-ai/plugin.
@@ -140,6 +141,9 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
       keyProvider,
       piiStorageProvider: piiStorage,
     });
+    if (options?.githubIdentities === true) {
+      anonymizer.getRegistry().register(githubUsernameRecognizer);
+    }
     await anonymizer.initialize();
 
     // Build policy with disabled types (URL and IP_ADDRESS disabled by default)
@@ -177,6 +181,25 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     });
 
     const locale = options?.locale;
+    const githubPolicy: Partial<AnonymizationPolicy> | undefined =
+      options?.githubIdentities === true
+        ? {
+            ...policy,
+            enabledTypes: new Set([
+              ...(policy?.enabledTypes ?? [
+                ...createDefaultPolicy().enabledTypes,
+                ...SECRET_PII_TYPES,
+              ]),
+              PIIType.GITHUB_USERNAME,
+            ]),
+            regexEnabledTypes: new Set([
+              ...(policy?.regexEnabledTypes ??
+                createDefaultPolicy().regexEnabledTypes),
+              PIIType.GITHUB_USERNAME,
+            ]),
+            reuseIdsForRepeatedPII: true,
+          }
+        : undefined;
 
     // One session per OpenCode session, keyed by sessionID
     const sessions = new Map<string, AnonymizerSessionImpl>();
@@ -241,10 +264,19 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
               part.state.status === "completed" &&
               typeof part.state.output === "string"
             ) {
+              const command = (
+                part.state as { input?: { command?: unknown } }
+              ).input?.command;
+              const outputPolicy =
+                githubPolicy !== undefined &&
+                typeof command === "string" &&
+                /\bgh\s+(?:pr|api)\b/.test(command)
+                  ? githubPolicy
+                  : policy;
               const result = await session.anonymize(
                 part.state.output,
                 locale,
-                policy,
+                outputPolicy,
               );
               if (result.stats.totalEntities > 0) {
                 hasAnonymized = true;
