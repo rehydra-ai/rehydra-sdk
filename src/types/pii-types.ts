@@ -12,6 +12,7 @@ export enum PIIType {
   // Contact information
   EMAIL = 'EMAIL',
   PHONE = 'PHONE',
+  GITHUB_USERNAME = 'GITHUB_USERNAME',
   URL = 'URL',
   IP_ADDRESS = 'IP_ADDRESS',
 
@@ -65,6 +66,7 @@ export const REGEX_PII_TYPES: readonly PIIType[] = [
   PIIType.DATE,
   PIIType.CASE_ID,
   PIIType.CUSTOMER_ID,
+  PIIType.GITHUB_USERNAME,
 ];
 
 /**
@@ -97,6 +99,7 @@ export const NER_PII_TYPES: readonly PIIType[] = [
  */
 export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   // Lower priority (generic)
+  PIIType.GITHUB_USERNAME,
   PIIType.URL,
   PIIType.IP_ADDRESS,
   PIIType.LOCATION,
@@ -157,4 +160,3 @@ export function getPIITypeFromNERLabel(label: string): PIIType | null {
 
   return NER_LABEL_TO_PII_TYPE[cleanLabel] ?? null;
 }
-

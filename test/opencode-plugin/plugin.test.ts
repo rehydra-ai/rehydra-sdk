@@ -32,6 +32,7 @@ function toolPart(
   output: string,
   sessionID = "ses-1",
   messageID = "msg-1",
+  command = "echo test",
 ): Record<string, unknown> {
   return {
     id: `part-${Math.random().toString(36).slice(2, 8)}`,
@@ -42,7 +43,7 @@ function toolPart(
     tool: "bash",
     state: {
       status: "completed",
-      input: { command: "echo test" },
+      input: { command },
       output,
       title: "bash",
       metadata: {},
@@ -209,6 +210,120 @@ describe("OpenCode Plugin", () => {
 
       const text = (output.messages[0]!.parts[0] as { text: string }).text;
       expect(text).toBe(originalText);
+    });
+
+    it("should anonymize GitHub participants only in gh output when enabled", async () => {
+      const githubPlugin = createRehydraPlugin({ vcsIdentities: true });
+      const githubHooks = (await githubPlugin(mockCtx())) as Record<
+        string,
+        (...args: any[]) => Promise<void>
+      >;
+      const output = {
+        messages: [
+          message(
+            "assistant",
+            [
+              toolPart(
+                "author:\talice-dev\nreviewers:\toctocat (Approved)\n{\"author\":{\"login\":\"json-user\"}}\n--\n@alice-dev asked @octocat and @json-user to check @rehydra/opencode",
+                "ses-github",
+                "msg-github",
+                "gh pr view 42 --comments",
+              ),
+            ],
+            "ses-github",
+          ),
+        ],
+      };
+
+      await githubHooks["experimental.chat.messages.transform"]!({}, output);
+
+      const state = (
+        output.messages[0]!.parts[0] as { state: { output: string } }
+      ).state;
+      expect(state.output).not.toContain("alice-dev");
+      expect(state.output).not.toContain("octocat");
+      expect(state.output).not.toContain("json-user");
+      expect(state.output).toContain("@rehydra/opencode");
+      expect(state.output.match(/GITHUB_USERNAME/g)).toHaveLength(6);
+
+      const args = {
+        args: { command: `gh pr comment 42 --body '${state.output}'` },
+      };
+      await githubHooks["tool.execute.before"]!(
+        { tool: "bash", sessionID: "ses-github", callID: "call-github" },
+        args,
+      );
+      expect(args.args.command).toContain("@alice-dev");
+      expect(args.args.command).toContain("@octocat");
+      expect(args.args.command).toContain("@json-user");
+    });
+
+    it("should leave GitHub-like names in unrelated tool output", async () => {
+      const githubPlugin = createRehydraPlugin({ vcsIdentities: true });
+      const githubHooks = (await githubPlugin(mockCtx())) as Record<
+        string,
+        (...args: any[]) => Promise<void>
+      >;
+      const output = {
+        messages: [
+          message("assistant", [
+            toolPart("author:\talice-dev\n@alice-dev"),
+          ]),
+        ],
+      };
+
+      await githubHooks["experimental.chat.messages.transform"]!({}, output);
+
+      const state = (
+        output.messages[0]!.parts[0] as { state: { output: string } }
+      ).state;
+      expect(state.output).toContain("alice-dev");
+    });
+
+    it("should anonymize identities in git output when enabled", async () => {
+      const vcsPlugin = createRehydraPlugin({ vcsIdentities: true });
+      const vcsHooks = (await vcsPlugin(mockCtx())) as Record<
+        string,
+        (...args: any[]) => Promise<void>
+      >;
+      const output = {
+        messages: [
+          message(
+            "assistant",
+            [
+              toolPart(
+                "commit abc123\nAuthor: Alice Developer <alice@example.com>\nauthor Bob Builder\nabc123 (Carol Coder 2026-09-03 10:00:00 +0000 1) line\n\n    Pair with Alice Developer and Bob Builder\n",
+                "ses-git",
+                "msg-git",
+                "git log -1",
+              ),
+            ],
+            "ses-git",
+          ),
+        ],
+      };
+
+      await vcsHooks["experimental.chat.messages.transform"]!({}, output);
+
+      const state = (
+        output.messages[0]!.parts[0] as { state: { output: string } }
+      ).state;
+      expect(state.output).not.toContain("Alice Developer");
+      expect(state.output).not.toContain("Bob Builder");
+      expect(state.output).not.toContain("Carol Coder");
+      expect(state.output).not.toContain("alice@example.com");
+      expect(state.output.match(/type="PERSON"/g)).toHaveLength(5);
+      expect(state.output).toContain('type="EMAIL"');
+
+      const args = { args: { command: `git show --format='${state.output}'` } };
+      await vcsHooks["tool.execute.before"]!(
+        { tool: "bash", sessionID: "ses-git", callID: "call-git" },
+        args,
+      );
+      expect(args.args.command).toContain("Alice Developer");
+      expect(args.args.command).toContain("Bob Builder");
+      expect(args.args.command).toContain("Carol Coder");
+      expect(args.args.command).toContain("alice@example.com");
     });
   });
 

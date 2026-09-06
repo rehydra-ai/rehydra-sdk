@@ -41,8 +41,17 @@ export default createRehydraPlugin({
 
   // Disable detection of specific PII types
   disableTypes: ["URL", "IP_ADDRESS"],
+
+  // Redact identities in Git and GitHub CLI output
+  vcsIdentities: true,
 });
 ```
+
+`vcsIdentities` detects logins in `gh pr` and `gh api` output, plus author and
+committer names in `git log`, `git show`, and `git blame` output. It redacts
+every occurrence of those identities in the same tool output without touching
+npm scopes or other `@` identifiers in unrelated commands. GitHub display names
+outside these structured fields still require the optional local NER model.
 
 ## What gets detected
 
@@ -84,3 +93,5 @@ Full documentation at [docs.rehydra.ai](https://docs.rehydra.ai).
 ## License
 
 MIT
+
+VCS identity discovery supports direct `gh pr`, `gh api`, `git log`, `git show`, and `git blame` commands, including global options such as `git -C` and `gh --repo`. Commands hidden inside shell scripts or aliases need explicit integration or NER. GitHub discovery masks participant fields and mentions of those participants; it preserves JSON keys and npm scopes. `disableTypes` still takes precedence over identity detection.
