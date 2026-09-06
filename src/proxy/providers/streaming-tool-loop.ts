@@ -169,11 +169,16 @@ export const anthropicStreamingToolLoop: StreamingToolLoopAdapter = {
     for (const [i, item] of response.content.entries()) {
       const block = object(item);
       const start = { ...block };
-      let delta: ObjectValue | undefined;
-      if (block.type === 'text') { start.text = ''; delta = { type: 'text_delta', text: block.text }; }
-      if (block.type === 'tool_use') { start.input = {}; delta = { type: 'input_json_delta', partial_json: JSON.stringify(block.input) }; }
+      const deltas: ObjectValue[] = [];
+      if (block.type === 'text') { start.text = ''; deltas.push({ type: 'text_delta', text: block.text }); }
+      if (block.type === 'tool_use') { start.input = {}; deltas.push({ type: 'input_json_delta', partial_json: JSON.stringify(block.input) }); }
+      if (block.type === 'thinking') {
+        start.thinking = ''; start.signature = '';
+        deltas.push({ type: 'thinking_delta', thinking: block.thinking });
+        if (typeof block.signature === 'string') deltas.push({ type: 'signature_delta', signature: block.signature });
+      }
       yield event({ type: 'content_block_start', index: i, content_block: start }, 'content_block_start');
-      if (delta !== undefined) yield event({ type: 'content_block_delta', index: i, delta }, 'content_block_delta');
+      for (const delta of deltas) yield event({ type: 'content_block_delta', index: i, delta }, 'content_block_delta');
       yield event({ type: 'content_block_stop', index: i }, 'content_block_stop');
     }
     yield event({ type: 'message_delta', delta: { stop_reason: response.stop_reason, stop_sequence: response.stop_sequence }, usage: response.usage ?? {} }, 'message_delta');
