@@ -1,6 +1,6 @@
 {
   "name": "@rehydra/cli",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "CLI for Rehydra PII anonymization — anonymize, rehydrate, and inspect text from the terminal",
   "type": "module",
   "bin": {
@@ -28,7 +28,7 @@
     "directory": "packages/cli"
   },
   "dependencies": {
-    "rehydra": "^0.13.0"
+    "rehydra": "^0.14.0"
   },
   "engines": {
     "node": ">=18.0.0"

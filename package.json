@@ -1,6 +1,6 @@
 {
   "name": "rehydra",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "On-device PII anonymization module for high-privacy AI workflows",
   "main": "dist/index.js",
   "module": "dist/index.js",

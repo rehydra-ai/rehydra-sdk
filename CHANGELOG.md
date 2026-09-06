@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.14.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.13.0...v0.14.0) (2026-09-06)
+
+
+### Features
+
+* detect UK postcodes and numbered street addresses ([28d3d47](https://github.com/rehydra-ai/rehydra-sdk/commit/28d3d474815f0a55af0bcf43470fd9019c0df058))
+* detect UK postcodes and numbered street addresses ([6578216](https://github.com/rehydra-ai/rehydra-sdk/commit/6578216e5185cd73178766dd9fb49a3b572431d8))
+* **opencode:** redact Git author identities ([c79fb7a](https://github.com/rehydra-ai/rehydra-sdk/commit/c79fb7acf388ddc116bbdf249f099574b2b0ed61))
+* **opencode:** redact GitHub participant identities ([30d758f](https://github.com/rehydra-ai/rehydra-sdk/commit/30d758f853151121f062def9949215359e0438a1))
+* **opencode:** redact VCS identities ([eb5a41c](https://github.com/rehydra-ai/rehydra-sdk/commit/eb5a41c50352d84a0576b27c76d011cdca91a9b1))
+* **proxy:** execute streaming tool loops with bounded buffering ([f5c8be9](https://github.com/rehydra-ai/rehydra-sdk/commit/f5c8be94979b74440acf01a9e5c4174a83207dcc))
+* **proxy:** support streaming server-side tool loops ([f6525b2](https://github.com/rehydra-ai/rehydra-sdk/commit/f6525b291b7484d1e35715095898f8d1827ef0b5))
+* support alphanumeric tag IDs ([#93](https://github.com/rehydra-ai/rehydra-sdk/issues/93)) ([8bf2108](https://github.com/rehydra-ai/rehydra-sdk/commit/8bf2108a7f7091dcb62378e2208dd2286ef85ed0))
+
+
+### Bug Fixes
+
+* **opencode:** constrain VCS identity detection and preserve policies ([5afe857](https://github.com/rehydra-ai/rehydra-sdk/commit/5afe857ce420d9004a4f818865b2352b7375e52f))
+* **opencode:** discover project env files by default ([37b9128](https://github.com/rehydra-ai/rehydra-sdk/commit/37b912850bd50a51b78b21dcf22ac875bc015796))
+* **opencode:** load and discover project env files by default ([141d635](https://github.com/rehydra-ai/rehydra-sdk/commit/141d635b8f6ed6b44c6f8128c7b7f23599351760))
+* **opencode:** preserve existing identity tags on repeated transforms ([544acd3](https://github.com/rehydra-ai/rehydra-sdk/commit/544acd389d59a32d31d8fe81a18e65244ad1cfff))
+* **opencode:** redact restored tool arguments in model history ([09f1b8f](https://github.com/rehydra-ai/rehydra-sdk/commit/09f1b8fa83c9d0f2155a50b1c0abc19cefeb19fc))
+* **opencode:** redact restored tool arguments in model history ([2434bfb](https://github.com/rehydra-ai/rehydra-sdk/commit/2434bfb5d535ccebefc39d3a2df1104433080353))
+* **proxy:** emit Anthropic thinking and signature deltas ([e64efbc](https://github.com/rehydra-ai/rehydra-sdk/commit/e64efbcb9d1a2db266a4f629698f2825a638d23a))
+* retain GitHub identity overlap priority ([c1f2475](https://github.com/rehydra-ai/rehydra-sdk/commit/c1f2475415371ecc4c1c6ccbdeae52e84a60ad7c))
+
 ## [0.13.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.12.0...v0.13.0) (2026-08-09)
 
 
