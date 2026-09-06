@@ -550,7 +550,10 @@ export class Anonymizer {
       // Parse .env files if provided
       if (this.secretsConfig.envFiles !== undefined && this.secretsConfig.envFiles.length > 0) {
         const storage = await getStorageProvider();
-        for (const envFile of this.secretsConfig.envFiles) {
+        const envFiles = storage.resolveFiles !== undefined
+          ? await storage.resolveFiles(this.secretsConfig.envFiles, this.secretsConfig.envBaseDirectory)
+          : this.secretsConfig.envFiles;
+        for (const envFile of envFiles) {
           try {
             const content = await storage.readTextFile(envFile);
             const parsed = parseEnvFile(content);

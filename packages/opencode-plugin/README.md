@@ -20,7 +20,9 @@ Add to `opencode.json`:
 }
 ```
 
-By default, the plugin reads `.env` in your project root. Secrets with values of 4+ characters are detected and scrubbed.
+By default, the plugin discovers `**/.env*` under the OpenCode project directory, including files such as `packages/api/.env` and `apps/web/.env.local`. It skips `node_modules`, `.git`, and symbolic links. Secrets with values of 4+ characters are detected and scrubbed.
+
+`envFiles` accepts exact paths and glob patterns, resolved against the project directory even when OpenCode starts elsewhere. Use `envFiles: [".env"]` for root-only loading, or `envFiles: []` to disable file loading. Files are loaded once when the plugin initializes; restart OpenCode after changing them. Missing files are ignored. An advanced `anonymizer` configuration keeps control of its own `secrets` settings, with relative paths still rooted at the project directory unless `secrets.envBaseDirectory` is set.
 
 ## Configuration
 

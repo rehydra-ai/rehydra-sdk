@@ -121,12 +121,20 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     const piiStorage = new InMemoryPIIStorageProvider();
 
     // Build anonymizer config from options, sharing key and storage providers
-    const anonymizerConfig = options?.anonymizer ?? {
+    const baseConfig = options?.anonymizer ?? {
       secrets: {
         enabled: true,
-        envFiles: options?.envFiles,
+        envFiles: options?.envFiles ?? ["**/.env*"],
         redactValues: options?.redactValues,
         minValueLength: options?.minValueLength,
+      },
+    };
+
+    const anonymizerConfig = {
+      ...baseConfig,
+      secrets: baseConfig.secrets === undefined ? undefined : {
+        ...baseConfig.secrets,
+        envBaseDirectory: baseConfig.secrets.envBaseDirectory ?? ctx.directory,
       },
     };
 
@@ -171,7 +179,7 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     }
 
     log("info", "plugin initialized", {
-      envFiles: options?.envFiles,
+      envFiles: anonymizerConfig.secrets?.envFiles,
       redactValueCount: options?.redactValues?.length ?? 0,
       disableTypes,
     });
