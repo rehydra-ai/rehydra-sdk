@@ -127,6 +127,35 @@ describe("OpenCode Plugin", () => {
   });
 
   describe("messages.transform", () => {
+    it.each(["completed", "error", "running"])("scrubs restored tool arguments in %s history", async (status) => {
+      const original = {
+        command: `printf '%s' '${TEST_SECRET}'`,
+        nested: [{ email: "ada@example.com", count: 2, enabled: true, empty: null }],
+        "ada@example.com": "a property name",
+      };
+      const state = { status, input: original, error: `Failed for ada@example.com: ${TEST_SECRET}` };
+      const output = { messages: [message("assistant", [{ type: "tool", state }])] };
+
+      await hooks["experimental.chat.messages.transform"]!({}, output);
+
+      expect(state.input.command).not.toContain(TEST_SECRET);
+      expect(state.input.nested[0]!.email).toContain("<PII");
+      expect(state.error).not.toContain(TEST_SECRET);
+      expect(state.error).not.toContain("ada@example.com");
+      expect(state.input.nested[0]).toMatchObject({ count: 2, enabled: true, empty: null });
+      expect(state.input["ada@example.com"]).toBe("a property name");
+      expect(original.command).toContain(TEST_SECRET);
+      expect(original.nested[0]!.email).toBe("ada@example.com");
+
+      const once = structuredClone(state.input);
+      await hooks["experimental.chat.messages.transform"]!({}, output);
+      expect(state.input).toEqual(once);
+
+      const execution = { args: structuredClone(state.input) };
+      await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses-1", callID: "replay" }, execution);
+      expect(execution.args).toEqual(original);
+    });
+
     it("should anonymize secrets in TextPart", async () => {
       const output = {
         messages: [
