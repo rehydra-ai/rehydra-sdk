@@ -150,6 +150,8 @@ describe("createDefaultPolicy", () => {
   it("should create a policy with all non-secret types enabled", () => {
     const policy = createDefaultPolicy();
 
+    expect(policy.enabledTypes.has(PIIType.GITHUB_USERNAME)).toBe(true);
+
     // Secret types should NOT be enabled by default (opt-in only)
     expect(policy.enabledTypes.has(PIIType.API_KEY)).toBe(false);
     expect(policy.enabledTypes.has(PIIType.PRIVATE_KEY)).toBe(false);
@@ -164,7 +166,6 @@ describe("createDefaultPolicy", () => {
     expect(policy.enabledTypes.has(PIIType.PERSON)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.PHONE)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.IBAN)).toBe(true);
-    expect(policy.enabledTypes.has(PIIType.GITHUB_USERNAME)).toBe(true);
   });
 
   it("should have correct regex-enabled types", () => {
