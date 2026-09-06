@@ -1,10 +1,10 @@
 # @rehydra/opencode
 
-Prevent your coding agent from leaking secrets to LLM providers.
+Scrub detected secrets from OpenCode messages before the main LLM request.
 
 This plugin intercepts the conversation between [OpenCode](https://github.com/sst/opencode) and the LLM. Secrets from your `.env` files are replaced with placeholders before they leave your machine, and transparently restored before any tool (shell commands, file writes, etc.) executes locally.
 
-The LLM never sees real secret values. Your tools run with them.
+Detected values are masked in requests that pass through the plugin hooks. Local tools receive the restored values. See the title-generation limitation below.
 
 ## Install
 
@@ -21,6 +21,23 @@ Add to `opencode.json`:
 ```
 
 By default, the plugin reads `.env` in your project root. Secrets with values of 4+ characters are detected and scrubbed.
+
+## Session title limitation
+
+OpenCode also sends the first user message to a separate LLM call to generate a session title. That call bypasses `experimental.chat.messages.transform`, so the plugin cannot scrub it. The first message can reach the title model with secrets intact even when the main conversation is anonymized. This limitation is tracked in [OpenCode issue #46115](https://github.com/anomalyco/opencode/issues/46115).
+
+To prevent that request, disable OpenCode's title agent in `opencode.json`:
+
+```json
+{
+  "plugin": ["@rehydra/opencode"],
+  "agent": {
+    "title": { "disable": true }
+  }
+}
+```
+
+This turns off automatic session titles. Restart OpenCode after changing the configuration. The plugin protects requests that invoke its hooks; it cannot intercept other model calls made outside those hooks.
 
 ## Configuration
 
@@ -64,7 +81,7 @@ The plugin uses five OpenCode hooks:
 | `tool.execute.after` | Restores real values in displayed tool output |
 | `text.complete` | Restores real values in LLM response text shown to you |
 
-Everything runs locally. No data leaves your machine except the scrubbed conversation sent to the LLM provider.
+Detection and rehydration run locally. The main conversation is scrubbed through the message hook before forwarding to the LLM provider. The separate title request described above needs its own opt-out.
 
 ## Logging
 

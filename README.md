@@ -77,6 +77,8 @@ npm install @rehydra/opencode
 
 Intercepts the conversation between [OpenCode](https://github.com/sst/opencode) and the LLM. Secrets from `.env` files are replaced with placeholders before they leave your machine and restored before tools execute.
 
+OpenCode's separate session-title request bypasses the plugin hooks and can send the first message without scrubbing. Disable the title agent to prevent that call; see [the limitation and configuration](packages/opencode-plugin/README.md#session-title-limitation).
+
 ### CLI
 
 For automation and server-side use.
