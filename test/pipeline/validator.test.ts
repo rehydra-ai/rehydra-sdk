@@ -92,6 +92,19 @@ describe('Validator', () => {
       expect(result.potentialLeaks?.[0]?.type).toBe(PIIType.EMAIL);
     });
 
+    it('should detect potential UK postcode leaks regardless of casing', () => {
+      const result = validateOutput('Deliver to n16 4hy', [], [], defaultPolicy);
+
+      expect(result.leakScanPassed).toBe(false);
+      expect(result.potentialLeaks).toContainEqual(
+        expect.objectContaining({
+          type: PIIType.POSTAL_CODE,
+          text: 'n16 4hy',
+          pattern: 'UK Postal Code',
+        }),
+      );
+    });
+
     it('should not flag text inside tags as leaks', () => {
       // The tag itself contains "type" and other text, should not match
       const anonymizedText = 'Hello <PII type="EMAIL" id="1"/>!';
@@ -150,4 +163,3 @@ describe('Validator', () => {
     });
   });
 });
-

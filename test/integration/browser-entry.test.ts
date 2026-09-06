@@ -40,6 +40,7 @@ import {
   getGlobalRegistry,
   emailRecognizer,
   phoneRecognizer,
+  ukPostalCodeRecognizer,
   ibanRecognizer,
   bicSwiftRecognizer,
   creditCardRecognizer,
@@ -132,6 +133,7 @@ describe('Browser Entry Point', () => {
       expect(getGlobalRegistry).toBeDefined();
       expect(emailRecognizer).toBeDefined();
       expect(phoneRecognizer).toBeDefined();
+      expect(ukPostalCodeRecognizer).toBeDefined();
       expect(ibanRecognizer).toBeDefined();
       expect(bicSwiftRecognizer).toBeDefined();
       expect(creditCardRecognizer).toBeDefined();
@@ -1017,4 +1019,3 @@ describe('Browser Entry Point - Repeated PII Handling', () => {
     await anonymizer.dispose();
   });
 });
-

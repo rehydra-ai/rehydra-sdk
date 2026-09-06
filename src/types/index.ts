@@ -317,8 +317,10 @@ export function createDefaultPolicy(): AnonymizationPolicy {
   return {
     enabledTypes: allTypes,
     regexEnabledTypes: new Set([
+      PIIType.ADDRESS,
       PIIType.EMAIL,
       PIIType.PHONE,
+      PIIType.POSTAL_CODE,
       PIIType.IBAN,
       PIIType.BIC_SWIFT,
       PIIType.CREDIT_CARD,

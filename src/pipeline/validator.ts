@@ -7,6 +7,7 @@ import { PIIType, DetectedEntity, AnonymizationPolicy, TagFormat, TagId, DEFAULT
 import { spansOverlap } from '../utils/offsets.js';
 import { extractTags, isValidTag } from './tagger.js';
 import { escapeRegExp } from '../utils/regex.js';
+import { UK_POSTAL_CODE_PATTERN } from '../recognizers/postal-code.js';
 
 /**
  * Validation result
@@ -89,6 +90,11 @@ const LEAK_SCAN_PATTERNS: Array<{ type: PIIType; pattern: RegExp; name: string }
     type: PIIType.IP_ADDRESS,
     pattern: /(?:\d{1,3}\.){3}\d{1,3}/g,
     name: 'IP Address',
+  },
+  {
+    type: PIIType.POSTAL_CODE,
+    pattern: UK_POSTAL_CODE_PATTERN,
+    name: 'UK Postal Code',
   },
 ];
 
@@ -329,7 +335,8 @@ function performLeakScan(
       continue;
     }
 
-    const globalPattern = new RegExp(pattern.source, 'g');
+    const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+    const globalPattern = new RegExp(pattern.source, flags);
     let match: RegExpExecArray | null;
 
     while ((match = globalPattern.exec(textWithoutTags)) !== null) {
@@ -392,4 +399,3 @@ export function hasNoOverlaps(entities: Array<{ start: number; end: number }>): 
 
   return true;
 }
-

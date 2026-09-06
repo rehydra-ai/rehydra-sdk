@@ -29,7 +29,7 @@ You need pseudonyms that the LLM can work with, and that your tools can reverse.
 
 ## How Rehydra Solves It
 
-1. **Detect** — Regex patterns catch structured PII (emails, phones, IBANs, credit cards). An on-device NER model (ONNX, no cloud calls) catches soft PII (names, organizations, locations).
+1. **Detect** — Regex patterns catch structured PII (emails, phones, UK postcodes, IBANs, credit cards). An on-device NER model (ONNX, no cloud calls) catches soft PII (names, organizations, locations).
 2. **Replace** — Each PII value gets a stable placeholder: `<PII type="PERSON" id="1"/>`. The LLM works with these instead of real data.
 3. **Persist** — The same entity always gets the same ID, across every message in the session. The LLM maintains relational coherence without ever seeing real PII.
 4. **Rehydrate** — When a response needs to become real again (a file write, a bash command, a final answer), Rehydra restores the original values from its encrypted map.
@@ -211,3 +211,9 @@ For API reference, configuration, guides, and examples, visit **[docs.rehydra.ai
 ## License
 
 [MIT](LICENSE)
+
+### Address detection
+
+The default regex registry detects UK postcode syntax and numbered English-language street addresses such as `34a Friskin Road`. Apartment identifiers are included when adjacent to a street address, as in `Flat 1\n34a Friskin Road`. A contiguous UK address block ending in a postcode is masked as one `ADDRESS`; a standalone postcode uses `POSTAL_CODE`. Bare apartment numbers, unnumbered buildings, and other countries' postal formats need custom recognizers or NER. Postcode matching checks syntax, not whether a postcode is currently assigned.
+
+Disable `ADDRESS` or `POSTAL_CODE` through the detection policy to opt out of either recognizer.

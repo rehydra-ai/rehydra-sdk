@@ -6,6 +6,7 @@ import {
 } from '../../src/recognizers/registry.js';
 import { emailRecognizer } from '../../src/recognizers/email.js';
 import { phoneRecognizer } from '../../src/recognizers/phone.js';
+import { ukPostalCodeRecognizer } from '../../src/recognizers/postal-code.js';
 import { urlRecognizer } from '../../src/recognizers/url.js';
 import { createRegexRecognizer } from '../../src/recognizers/base.js';
 import { PIIType, createDefaultPolicy, type Recognizer } from '../../src/types/index.js';
@@ -41,10 +42,12 @@ describe('RecognizerRegistry', () => {
     it('should register recognizers for different types', () => {
       registry.register(emailRecognizer);
       registry.register(phoneRecognizer);
+      registry.register(ukPostalCodeRecognizer);
       registry.register(urlRecognizer);
 
       expect(registry.hasRecognizer(PIIType.EMAIL)).toBe(true);
       expect(registry.hasRecognizer(PIIType.PHONE)).toBe(true);
+      expect(registry.hasRecognizer(PIIType.POSTAL_CODE)).toBe(true);
       expect(registry.hasRecognizer(PIIType.URL)).toBe(true);
     });
   });
@@ -377,4 +380,3 @@ describe('createRegistry', () => {
     expect(isolated.hasRecognizer(PIIType.EMAIL)).toBe(false);
   });
 });
-
