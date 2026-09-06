@@ -19,6 +19,10 @@ export interface StorageProvider {
    */
   readTextFile(path: string, encoding?: string): Promise<string>;
 
+  /** Resolve file paths/globs relative to a directory. Optional for virtual storage.
+   * Node discovery skips node_modules, .git, and symbolic links. */
+  resolveFiles?(patterns: string[], baseDirectory?: string): Promise<string[]>;
+
   /**
    * Writes data to a file
    * Creates parent directories if they don't exist

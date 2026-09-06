@@ -13,7 +13,8 @@ export type PIITypeName = `${PIIType}`;
  * Configuration options for the Rehydra OpenCode plugin.
  */
 export interface RehydraPluginOptions {
-  /** .env files to scan for secret values */
+  /** Paths/globs relative to the OpenCode project directory. Defaults to recursive .env discovery.
+   * Skips node_modules, .git, and symlinks. Pass [] to disable file loading. */
   envFiles?: string[];
 
   /** Explicit values to always redact */

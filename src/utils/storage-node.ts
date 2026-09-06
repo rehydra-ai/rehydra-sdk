@@ -6,6 +6,7 @@
 import * as fs from "fs/promises";
 import * as nodePath from "path";
 import * as os from "os";
+import glob from "fast-glob";
 import type { StorageProvider } from "./storage.js";
 
 /**
@@ -28,6 +29,27 @@ export class NodeStorageProvider implements StorageProvider {
     // Handle latin1 encoding (used by nam_dict.txt)
     const nodeEncoding = encoding === "latin1" ? "latin1" : "utf-8";
     return fs.readFile(path, { encoding: nodeEncoding as BufferEncoding });
+  }
+
+  async resolveFiles(patterns: string[], baseDirectory?: string): Promise<string[]> {
+    const cwd = baseDirectory ?? process.cwd();
+    // Preserve existing literal paths containing glob metacharacters.
+    const inputs = await Promise.all(patterns.map(async (pattern) => {
+      if (await this.exists(nodePath.resolve(cwd, pattern))) {
+        return glob.convertPathToPattern(pattern);
+      }
+      return pattern;
+    }));
+    if (inputs.length === 0) return [];
+    return (await glob(inputs, {
+      cwd,
+      absolute: true,
+      dot: true,
+      onlyFiles: true,
+      followSymbolicLinks: false,
+      unique: true,
+      ignore: ["**/node_modules/**", "**/.git/**"],
+    })).sort();
   }
 
   /**

@@ -284,8 +284,10 @@ export interface AnonymizationResult {
 export interface SecretsConfig {
   /** Enable secrets/credentials detection */
   enabled: boolean;
-  /** .env file paths to parse for known secret values */
+  /** .env file paths or Node.js glob patterns to parse for known secret values */
   envFiles?: string[];
+  /** Base directory for Node.js envFiles paths/globs. Defaults to process.cwd(). */
+  envBaseDirectory?: string;
   /** Explicit values to always redact */
   redactValues?: string[];
   /** Additional key name patterns for ENV_VAR_SECRET / CONFIG_SECRET detection */
