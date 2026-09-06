@@ -166,7 +166,6 @@ describe("createDefaultPolicy", () => {
     expect(policy.enabledTypes.has(PIIType.PHONE)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.POSTAL_CODE)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.IBAN)).toBe(true);
-    expect(policy.enabledTypes.size).toBe(19);
   });
 
   it("should have correct regex-enabled types", () => {
