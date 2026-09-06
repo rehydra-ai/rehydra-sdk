@@ -15,6 +15,7 @@ import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js
 import type { RehydraFetchConfig } from "./types.js";
 import { buildPIISystemInstruction } from "./system-instruction.js";
 import { buildTagPrefix } from "../utils/regex.js";
+import { accumulateToolStream, readToolResponse, toolResultStream } from "./tool-loop-stream.js";
 import { DEFAULT_TAG_FORMAT } from "../types/index.js";
 
 /** Headers to strip from proxied responses — the body is decompressed and may be modified. */
@@ -89,6 +90,14 @@ function errorResponse(status: number, message: string): Response {
 export function createRehydraFetch(
   config: RehydraFetchConfig,
 ): typeof globalThis.fetch {
+  if (config.maxToolRounds !== undefined &&
+    (!Number.isSafeInteger(config.maxToolRounds) || config.maxToolRounds < 0)) {
+    throw new Error("maxToolRounds must be a nonnegative safe integer");
+  }
+  if (config.maxToolResponseBytes !== undefined &&
+    (!Number.isSafeInteger(config.maxToolResponseBytes) || config.maxToolResponseBytes <= 0)) {
+    throw new Error("maxToolResponseBytes must be a positive safe integer");
+  }
   const anonymizer = createAnonymizer({
     ...config.anonymizer,
     keyProvider: config.keyProvider,
@@ -228,6 +237,8 @@ export function createRehydraFetch(
         return errorResponse(502, `Upstream LLM unreachable: ${msg}`);
       }
 
+      if (!response.ok) return response;
+
       // Determine if the response is a streaming SSE response
       const responseContentType = response.headers.get("content-type");
       const isSSE =
@@ -237,6 +248,11 @@ export function createRehydraFetch(
         responseContentType.includes("text/event-stream");
 
       if (isSSE && response.body !== null) {
+        if (config.onToolCall !== undefined && provider.streamingToolLoop !== undefined &&
+          provider.hasResponseToolCalls !== undefined && provider.extractResponseToolCallInfo !== undefined &&
+          provider.extractMessages !== undefined && provider.buildToolLoopBody !== undefined && response.ok) {
+          return await handleStreamingToolLoop(response, anonymizedBody, session, provider, config, request);
+        }
         return rehydrateSSEResponse(response, session, provider, config);
       }
 
@@ -261,11 +277,51 @@ export function createRehydraFetch(
 
       return rehydrateJSONResponse(response, session, provider);
     } catch (err) {
+      if (request.signal.aborted) throw err;
       const msg =
         err instanceof Error ? err.message : "Internal proxy error";
       return errorResponse(500, msg);
     }
   };
+}
+
+/** Buffer and validate the first stream before allowing any tool side effects. */
+async function handleStreamingToolLoop(
+  response: Response,
+  anonymizedBody: unknown,
+  session: AnonymizerSessionImpl,
+  provider: LLMContentProvider,
+  config: RehydraFetchConfig,
+  request: Request,
+): Promise<Response> {
+  const adapter = provider.streamingToolLoop!;
+  let text: string;
+  let complete: unknown;
+  try {
+    text = await readToolResponse(response, config.maxToolResponseBytes ?? 8 * 1024 * 1024, request.signal);
+    complete = accumulateToolStream(text, adapter);
+  } catch (err) {
+    if (request.signal.aborted) throw err;
+    return errorResponse(502, err instanceof Error ? err.message : "Invalid streamed tool response");
+  }
+  if (!provider.hasResponseToolCalls!(complete)) {
+    return rehydrateSSEResponse(new Response(text, {
+      status: response.status, headers: stripResponseHeaders(response.headers),
+    }), session, provider, config);
+  }
+  const headers = stripResponseHeaders(response.headers);
+  headers.set("content-type", "application/json");
+  const finalResponse = await handleToolLoop(new Response(JSON.stringify(complete), {
+    status: response.status, headers,
+  }), anonymizedBody, session, provider, config, request);
+  if (!finalResponse.ok) return finalResponse;
+  let finalBody: unknown;
+  try {
+    finalBody = await finalResponse.json();
+  } catch {
+    return errorResponse(502, "Invalid JSON in tool-loop response");
+  }
+  return toolResultStream(finalBody, finalResponse, adapter);
 }
 
 /**
@@ -362,7 +418,9 @@ async function handleToolLoop(
   const maxRounds = config.maxToolRounds ?? 10;
 
   // Parse the initial response
-  const rawText = await initialResponse.text();
+  const readResponse = (response: Response): Promise<string> =>
+    readToolResponse(response, config.maxToolResponseBytes ?? 8 * 1024 * 1024, originalRequest.signal);
+  const rawText = await readResponse(initialResponse);
   let currentResponse: unknown;
   try {
     currentResponse = JSON.parse(rawText);
@@ -403,19 +461,22 @@ async function handleToolLoop(
     const toolResults: ToolResultMessage[] = [];
     for (const tc of toolCallInfos) {
       // Rehydrate the arguments string to restore real PII
-      const rehydratedArgsStr = await session.rehydrate(tc.arguments);
+      originalRequest.signal.throwIfAborted();
       let parsedArgs: Record<string, unknown>;
       try {
-        parsedArgs = JSON.parse(rehydratedArgsStr) as Record<string, unknown>;
+        const args = JSON.parse(tc.arguments) as Record<string, unknown>;
+        parsedArgs = await session.rehydrateJson(args);
       } catch {
-        parsedArgs = { raw: rehydratedArgsStr };
+        parsedArgs = { raw: await session.rehydrate(tc.arguments) };
       }
+      originalRequest.signal.throwIfAborted();
 
       // Call the user's tool handler with real PII
       const result = await config.onToolCall!(tc.name, parsedArgs, tc.id);
 
       // Anonymize the result using the same session (maintains PII ID continuity)
-      const anonymizedResult = await session.anonymizeJson(result);
+      originalRequest.signal.throwIfAborted();
+      const anonymizedResult = await session.anonymizeJson(result, config.locale, config.policy);
 
       toolResults.push({
         toolCallId: tc.id,
@@ -486,7 +547,11 @@ async function handleToolLoop(
     lastUpstreamResponse = nextResponse;
 
     // Parse the new response
-    const nextRawText = await nextResponse.text();
+    const nextRawText = await readResponse(nextResponse);
+    if (!nextResponse.ok) return new Response(nextRawText, {
+      status: nextResponse.status, statusText: nextResponse.statusText,
+      headers: stripResponseHeaders(nextResponse.headers),
+    });
     try {
       currentResponse = JSON.parse(nextRawText);
     } catch {

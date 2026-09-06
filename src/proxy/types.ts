@@ -86,7 +86,7 @@ export interface RehydraFetchConfig {
 
   /**
    * Callback for executing tool calls in an agentic loop.
-   * When provided and the LLM returns tool calls (non-streaming), the proxy will:
+   * When provided and the LLM returns tool calls, the proxy will:
    * 1. Rehydrate tool call arguments (restore real PII)
    * 2. Call this callback for each tool call
    * 3. Anonymize the return value
@@ -94,7 +94,9 @@ export interface RehydraFetchConfig {
    * 5. Repeat until the LLM returns a final response (no tool calls)
    *
    * The callback receives real PII values — it runs on your server, not the LLM.
-   * Non-streaming only (streaming tool loops are not yet supported).
+   * OpenAI and Anthropic streaming responses are buffered before tools run.
+   * Later rounds use JSON; the final result is emitted as provider-compatible SSE.
+   * Single-completion requests only. Cancellation prevents further tool calls.
    */
   onToolCall?: OnToolCallFn;
 
@@ -104,6 +106,9 @@ export interface RehydraFetchConfig {
    * @default 10
    */
   maxToolRounds?: number;
+
+  /** Maximum bytes buffered per response in a tool loop. Default: 8 MiB. */
+  maxToolResponseBytes?: number;
 
   /**
    * Hook invoked once per intercepted request, after anonymization and
