@@ -93,3 +93,5 @@ Full documentation at [docs.rehydra.ai](https://docs.rehydra.ai).
 ## License
 
 MIT
+
+VCS identity discovery supports direct `gh pr`, `gh api`, `git log`, `git show`, and `git blame` commands, including global options such as `git -C` and `gh --repo`. Commands hidden inside shell scripts or aliases need explicit integration or NER. GitHub discovery masks participant fields and mentions of those participants; it preserves JSON keys and npm scopes. `disableTypes` still takes precedence over identity detection.

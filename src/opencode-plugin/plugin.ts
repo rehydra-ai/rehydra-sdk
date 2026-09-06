@@ -21,6 +21,7 @@ import type { PIITypeName, RehydraPluginOptions } from "./types.js";
 import { buildPIISystemInstruction } from "../proxy/system-instruction.js";
 import { buildTagPrefix } from "../utils/regex.js";
 import { githubUsernameRecognizer } from "./github-username.js";
+import { vcsCommandTypes } from "./vcs-command.js";
 import { gitIdentityRecognizer } from "./git-identity.js";
 
 /**
@@ -183,26 +184,21 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
     });
 
     const locale = options?.locale;
-    const identityPolicy = (
-      type: PIIType,
-    ): Partial<AnonymizationPolicy> => ({
-      ...policy,
-      enabledTypes: new Set([
-        ...(policy?.enabledTypes ?? [
-          ...createDefaultPolicy().enabledTypes,
-          ...SECRET_PII_TYPES,
-        ]),
-        type,
-      ]),
-      regexEnabledTypes: new Set([
-        ...(policy?.regexEnabledTypes ??
-          createDefaultPolicy().regexEnabledTypes),
-        type,
-      ]),
-      reuseIdsForRepeatedPII: true,
-    });
-    const githubPolicy = identityPolicy(PIIType.GITHUB_USERNAME);
-    const gitPolicy = identityPolicy(PIIType.PERSON);
+    const identityPolicy = (types: PIIType[]): Partial<AnonymizationPolicy> => {
+      const defaults = createDefaultPolicy();
+      const configPolicy = anonymizerConfig.defaultPolicy;
+      const enabledTypes = new Set(policy?.enabledTypes ?? configPolicy?.enabledTypes ?? defaults.enabledTypes);
+      const regexEnabledTypes = new Set(policy?.regexEnabledTypes ?? configPolicy?.regexEnabledTypes ?? defaults.regexEnabledTypes);
+      if (anonymizerConfig.secrets?.enabled === true) {
+        for (const type of SECRET_PII_TYPES) {
+          if (!disableTypes.includes(type)) { enabledTypes.add(type); regexEnabledTypes.add(type); }
+        }
+      }
+      for (const type of types) {
+        if (!disableTypes.includes(type)) { enabledTypes.add(type); regexEnabledTypes.add(type); }
+      }
+      return { ...policy, enabledTypes, regexEnabledTypes, reuseIdsForRepeatedPII: true };
+    };
 
     // One session per OpenCode session, keyed by sessionID
     const sessions = new Map<string, AnonymizerSessionImpl>();
@@ -275,11 +271,11 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
                 options?.vcsIdentities === true &&
                 typeof command === "string"
               ) {
-                if (/\bgh\s+(?:pr|api)\b/.test(command)) {
-                  outputPolicy = githubPolicy;
-                } else if (/\bgit\s+(?:log|show|blame)\b/.test(command)) {
-                  outputPolicy = gitPolicy;
-                }
+                const commands = vcsCommandTypes(command);
+                const types: PIIType[] = [];
+                if (commands.has('github')) types.push(PIIType.GITHUB_USERNAME);
+                if (commands.has('git')) types.push(PIIType.PERSON);
+                if (types.length > 0) outputPolicy = identityPolicy(types);
               }
               const result = await session.anonymize(
                 part.state.output,

@@ -9,11 +9,11 @@ export const gitIdentityRecognizer: Recognizer = {
   find(text: string): SpanMatch[] {
     const names = new Set<string>();
 
-    for (const match of text.matchAll(/^(?:Author|Commit|Committer):\s*(.+)$/gm)) {
-      names.add(match[1]!.replace(/\s+<[^>]+>\s*$/, "").trim());
+    for (const match of text.matchAll(/^(?:Author|Commit|Committer):[\t ]*(.+)$/gm)) {
+      names.add(match[1]!.replace(/[\t ]+<[^>]*>.*$/, "").trim());
     }
     for (const match of text.matchAll(/^(?:author|committer) (.+)$/gm)) {
-      names.add(match[1]!.trim());
+      names.add(match[1]!.replace(/[\t ]+<[^>]*>.*$/, '').trim());
     }
     for (const match of text.matchAll(/^.*\((.+?)\s+\d{4}-\d{2}-\d{2}\s[^)\n]*\)/gm)) {
       names.add(match[1]!.trim());

@@ -10,45 +10,35 @@ export const githubUsernameRecognizer: Recognizer = {
 
   find(text: string): SpanMatch[] {
     const logins = new Set<string>();
-
-    const jsonLoginPattern = new RegExp(
-      String.raw`"login"\s*:\s*"(${LOGIN})"`,
-      "g",
-    );
-    for (const match of text.matchAll(jsonLoginPattern)) {
-      logins.add(match[1]!);
+    const matches = new Map<number, SpanMatch>();
+    function add(start: number, login: string): void {
+      logins.add(login);
+      matches.set(start, {
+        type: PIIType.GITHUB_USERNAME, start, end: start + login.length,
+        confidence: 1, source: DetectionSource.REGEX, text: login,
+      });
     }
-
-    const summaryLoginPattern = new RegExp(
-      String.raw`^(?:author|assignees|reviewers):\s*(.+)$`,
-      "gm",
-    );
-    for (const match of text.matchAll(summaryLoginPattern)) {
-      for (const value of match[1]!.split(",")) {
-        const login = value.trim().match(new RegExp(`^(${LOGIN})`))?.[1];
-        if (login !== undefined) logins.add(login);
+    // Restrict JSON matches to values, so a login like "id" cannot mask JSON keys.
+    for (const match of text.matchAll(new RegExp(String.raw`"login"\s*:\s*"(${LOGIN})"`, 'g'))) {
+      add(match.index + match[0].lastIndexOf(match[1]!), match[1]!);
+    }
+    for (const match of text.matchAll(/^(?:author|assignees|reviewers):[\t ]*(.+)$/gim)) {
+      const list = match[1]!;
+      const offset = match.index + match[0].indexOf(list);
+      const entry = new RegExp(String.raw`(?:^|,)[\t ]*(${LOGIN})(?=[\t ,(]|$)`, 'g');
+      for (const item of list.matchAll(entry)) {
+        add(offset + item.index + item[0].lastIndexOf(item[1]!), item[1]!);
       }
     }
-
-    const matches: SpanMatch[] = [];
+    // Cover mentions of discovered participants, but preserve npm scopes.
     for (const login of logins) {
-      const escaped = login.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = new RegExp(
-        `(?<![A-Za-z0-9-])${escaped}(?![A-Za-z0-9-])`,
-        "gi",
-      );
-      for (const match of text.matchAll(pattern)) {
-        matches.push({
-          type: PIIType.GITHUB_USERNAME,
-          start: match.index,
-          end: match.index + match[0].length,
-          confidence: 1,
-          source: DetectionSource.REGEX,
-          text: match[0],
-        });
+      const escaped = login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      for (const match of text.matchAll(new RegExp(`(?<![A-Za-z0-9_/@])@(${escaped})(?![A-Za-z0-9-/])`, 'gi'))) {
+        const value = match[1]!;
+        matches.set(match.index + 1, { type: PIIType.GITHUB_USERNAME, start: match.index + 1,
+          end: match.index + 1 + value.length, confidence: 1, source: DetectionSource.REGEX, text: value });
       }
     }
-
-    return matches;
+    return [...matches.values()];
   },
 };
