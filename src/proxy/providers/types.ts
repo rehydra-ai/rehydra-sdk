@@ -1,3 +1,4 @@
+import type { StreamingToolLoopAdapter } from './streaming-tool-loop.js';
 /**
  * LLM Content Provider Interface
  * Abstracts LLM-specific request/response formats for the proxy middleware.
@@ -44,6 +45,9 @@ export interface ToolCallDelta {
 export interface LLMContentProvider {
   /** Provider name (e.g., "openai", "anthropic") */
   readonly name: string;
+
+  /** Optional SSE conversion for server-side tool execution loops. */
+  readonly streamingToolLoop?: StreamingToolLoopAdapter;
 
   /** Detect if a request matches this provider based on URL/headers */
   matchesRequest(url: string, headers: Headers): boolean;

@@ -127,6 +127,14 @@ Beyond names, emails, and phone numbers, Rehydra detects API keys (OpenAI, Anthr
 
 Purpose-built for LLM token streams. A sentence-buffered chunking system with NER overlap preservation ensures accurate detection even when PII spans chunk boundaries — with a low-latency mode for real-time streaming.
 
+### Streaming server-side tool loops
+
+`createRehydraFetch` supports `onToolCall` for OpenAI Chat Completions and Anthropic Messages requests with `stream: true`. The first response is buffered and its complete tool calls are validated before callbacks run. Interleaved calls retain their IDs and arguments. Tool arguments are rehydrated locally, and tool results are anonymized before the next request.
+
+Continuation requests use `stream: false`. The final response is returned as provider-compatible SSE, including completion events and usage. This buffers the initial response and final JSON response, so it does not preserve token-by-token generation latency. Streams without tool calls retain their original events.
+
+Set `maxToolRounds` to bound callback rounds, and `maxToolResponseBytes` to bound each buffered response; defaults are 10 rounds and 8 MiB. On reaching the round limit, pending calls are returned to the caller without execution. Pass an `AbortSignal` through fetch to cancel buffering or prevent later callbacks; a callback already running must manage its own cancellation. Truncated calls, malformed arguments, and oversized streams fail before tool execution. Upstream HTTP errors retain their status. OpenAI tool loops require a single completion choice. Custom providers can opt in through `streamingToolLoop` on `LLMContentProvider`.
+
 ### Semantic enrichment for machine translation
 
 Optional gender and scope attributes on PII tags (`<PII type="PERSON" gender="male" id="1"/>`, `<PII type="LOCATION" scope="city" id="2"/>`) preserve grammatical context for downstream systems.

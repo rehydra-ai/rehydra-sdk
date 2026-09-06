@@ -1,3 +1,4 @@
+import { anthropicStreamingToolLoop } from "./streaming-tool-loop.js";
 /**
  * Anthropic Content Provider
  * Handles Anthropic Messages API format.
@@ -54,6 +55,7 @@ interface AnthropicStreamEvent {
 
 export class AnthropicProvider implements LLMContentProvider {
   readonly name = "anthropic";
+  readonly streamingToolLoop = anthropicStreamingToolLoop;
 
   matchesRequest(url: string, headers: Headers): boolean {
     if (url.includes("api.anthropic.com")) return true;

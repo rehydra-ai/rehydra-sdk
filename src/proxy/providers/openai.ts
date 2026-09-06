@@ -1,3 +1,4 @@
+import { openAIStreamingToolLoop } from "./streaming-tool-loop.js";
 /**
  * OpenAI Content Provider
  * Handles OpenAI Chat Completions API format.
@@ -74,6 +75,7 @@ interface OpenAIStreamChunk {
 
 export class OpenAIProvider implements LLMContentProvider {
   readonly name = "openai";
+  readonly streamingToolLoop = openAIStreamingToolLoop;
 
   matchesRequest(url: string, headers: Headers): boolean {
     if (url.includes("api.openai.com")) return true;
@@ -286,6 +288,7 @@ export class OpenAIProvider implements LLMContentProvider {
       ...(originalBody as Record<string, unknown>),
       messages: newMessages,
       stream: false,
+      stream_options: undefined,
     };
   }
 
