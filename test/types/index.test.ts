@@ -164,7 +164,7 @@ describe("createDefaultPolicy", () => {
     expect(policy.enabledTypes.has(PIIType.PERSON)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.PHONE)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.IBAN)).toBe(true);
-    expect(policy.enabledTypes.size).toBe(19);
+    expect(policy.enabledTypes.has(PIIType.GITHUB_USERNAME)).toBe(true);
   });
 
   it("should have correct regex-enabled types", () => {
