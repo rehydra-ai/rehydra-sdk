@@ -55,7 +55,6 @@ export const ALL_PII_TYPES: readonly PIIType[] = Object.values(PIIType) as PIITy
 export const REGEX_PII_TYPES: readonly PIIType[] = [
   PIIType.EMAIL,
   PIIType.PHONE,
-  PIIType.GITHUB_USERNAME,
   PIIType.IBAN,
   PIIType.BIC_SWIFT,
   PIIType.CREDIT_CARD,
@@ -67,6 +66,7 @@ export const REGEX_PII_TYPES: readonly PIIType[] = [
   PIIType.DATE,
   PIIType.CASE_ID,
   PIIType.CUSTOMER_ID,
+  PIIType.GITHUB_USERNAME,
 ];
 
 /**
@@ -99,7 +99,6 @@ export const NER_PII_TYPES: readonly PIIType[] = [
  */
 export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   // Lower priority (generic)
-  PIIType.GITHUB_USERNAME,
   PIIType.URL,
   PIIType.IP_ADDRESS,
   PIIType.LOCATION,
