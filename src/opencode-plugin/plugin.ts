@@ -250,7 +250,45 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
         for (const msg of output.messages) {
           const session = getSession(msg.info.sessionID);
 
+          // OpenCode retains the rehydrated arguments after tool execution and
+          // serializes them into later model requests. Copy and scrub values so
+          // the execution arguments and JSON property names stay intact.
+          const scrubToolInput = async (value: unknown): Promise<unknown> => {
+            if (typeof value === "string") {
+              const result = await session.anonymize(value, locale, policy);
+              if (result.stats.totalEntities > 0) {
+                hasAnonymized = true;
+                totalScrubbed += result.stats.totalEntities;
+                for (const [type, count] of Object.entries(result.stats.countsByType)) {
+                  scrubbedByType[type] = (scrubbedByType[type] ?? 0) + count;
+                }
+              }
+              return result.anonymizedText;
+            }
+            if (Array.isArray(value)) {
+              const result: unknown[] = [];
+              for (const item of value) result.push(await scrubToolInput(item));
+              return result;
+            }
+            if (value !== null && typeof value === "object") {
+              const entries: Array<[string, unknown]> = [];
+              for (const [key, item] of Object.entries(value)) {
+                entries.push([key, await scrubToolInput(item)]);
+              }
+              return Object.fromEntries(entries);
+            }
+            return value;
+          };
+
           for (const part of msg.parts) {
+            if (part.type === "tool" && part.state !== undefined) {
+              const state = part.state as typeof part.state & { input?: unknown; error?: string };
+              if (state.input !== undefined) state.input = await scrubToolInput(state.input);
+              if (typeof state.error === "string") {
+                state.error = await scrubToolInput(state.error) as string;
+              }
+            }
+
             // Anonymize .text on any part type (text, reasoning, file, patch, etc.)
             if (typeof part.text === "string") {
               const result = await session.anonymize(part.text, locale, policy);
