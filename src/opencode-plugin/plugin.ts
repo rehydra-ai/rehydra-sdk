@@ -21,6 +21,7 @@ import type { PIITypeName, RehydraPluginOptions } from "./types.js";
 import { buildPIISystemInstruction } from "../proxy/system-instruction.js";
 import { buildTagPrefix } from "../utils/regex.js";
 import { githubUsernameRecognizer } from "./github-username.js";
+import { protectIdentityTags } from "./identity-recognizer.js";
 import { vcsCommandTypes } from "./vcs-command.js";
 import { gitIdentityRecognizer } from "./git-identity.js";
 
@@ -144,8 +145,8 @@ export function createRehydraPlugin(options?: RehydraPluginOptions): Plugin {
       piiStorageProvider: piiStorage,
     });
     if (options?.vcsIdentities === true) {
-      anonymizer.getRegistry().register(githubUsernameRecognizer);
-      anonymizer.getRegistry().register(gitIdentityRecognizer);
+      anonymizer.getRegistry().register(protectIdentityTags(githubUsernameRecognizer, tagFormat));
+      anonymizer.getRegistry().register(protectIdentityTags(gitIdentityRecognizer, tagFormat));
     }
     await anonymizer.initialize();
 

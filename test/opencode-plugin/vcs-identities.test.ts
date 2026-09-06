@@ -66,3 +66,15 @@ it('keeps identities stable across history transforms and restores tool argument
   await hooks['tool.execute.before']!({ tool: 'bash', sessionID: 'vcs-test', callID: 'call' }, args);
   expect(args.args.command).toBe(input);
 });
+
+it.each([undefined, { open: '[[', close: ']]', keyword: 'PRIVATE' }])('does not anonymize an existing identity tag again: %j', async (tagFormat) => {
+  const input = 'Author: Alice Developer <alice@example.com>';
+  const { text, hooks } = await scrub('git log', input, { tagFormat });
+  const part = { type: 'tool', state: { status: 'completed', input: { command: 'git log' }, output: text } };
+  const output = { messages: [{ info: { sessionID: 'vcs-test', role: 'assistant' }, parts: [part] }] };
+  await hooks['experimental.chat.messages.transform']!({}, output);
+  expect(part.state.output).toBe(text);
+  const args = { args: { command: part.state.output } };
+  await hooks['tool.execute.before']!({ tool: 'bash', sessionID: 'vcs-test', callID: 'call' }, args);
+  expect(args.args.command).toBe(input);
+});
