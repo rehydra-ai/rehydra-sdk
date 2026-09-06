@@ -99,6 +99,7 @@ export const NER_PII_TYPES: readonly PIIType[] = [
  */
 export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   // Lower priority (generic)
+  PIIType.GITHUB_USERNAME,
   PIIType.URL,
   PIIType.IP_ADDRESS,
   PIIType.LOCATION,
