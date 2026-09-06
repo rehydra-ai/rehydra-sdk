@@ -31,6 +31,7 @@ describe("PII Types", () => {
     it("should contain structured PII types", () => {
       expect(REGEX_PII_TYPES).toContain(PIIType.EMAIL);
       expect(REGEX_PII_TYPES).toContain(PIIType.PHONE);
+      expect(REGEX_PII_TYPES).toContain(PIIType.POSTAL_CODE);
       expect(REGEX_PII_TYPES).toContain(PIIType.IBAN);
       expect(REGEX_PII_TYPES).toContain(PIIType.CREDIT_CARD);
     });
@@ -163,8 +164,9 @@ describe("createDefaultPolicy", () => {
     expect(policy.enabledTypes.has(PIIType.EMAIL)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.PERSON)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.PHONE)).toBe(true);
+    expect(policy.enabledTypes.has(PIIType.POSTAL_CODE)).toBe(true);
     expect(policy.enabledTypes.has(PIIType.IBAN)).toBe(true);
-    expect(policy.enabledTypes.size).toBe(18);
+    expect(policy.enabledTypes.size).toBe(19);
   });
 
   it("should have correct regex-enabled types", () => {
@@ -172,6 +174,7 @@ describe("createDefaultPolicy", () => {
 
     expect(policy.regexEnabledTypes.has(PIIType.EMAIL)).toBe(true);
     expect(policy.regexEnabledTypes.has(PIIType.PHONE)).toBe(true);
+    expect(policy.regexEnabledTypes.has(PIIType.POSTAL_CODE)).toBe(true);
     expect(policy.regexEnabledTypes.has(PIIType.IBAN)).toBe(true);
     expect(policy.regexEnabledTypes.has(PIIType.PERSON)).toBe(false);
   });

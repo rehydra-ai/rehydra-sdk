@@ -43,6 +43,17 @@ describe('Anonymizer Integration', () => {
       expect(result.stats.countsByType[PIIType.PHONE]).toBeGreaterThanOrEqual(1);
     });
 
+    it('should anonymize the UK postcode from issue 94 including the apartment address', async () => {
+      const text = 'Flat 1\n34a Friskin Road\nLondon\nN16 4HY\nUnited Kingdom';
+      const result = await anonymizer.anonymize(text);
+
+      expect(result.anonymizedText).not.toContain('Flat 1');
+      expect(result.anonymizedText).not.toContain('N16 4HY');
+      expect(result.anonymizedText).toContain('<PII type="ADDRESS"');
+      expect(result.stats.countsByType[PIIType.ADDRESS]).toBe(1);
+      expect(result.stats.leakScanPassed).toBe(true);
+    });
+
     it('should anonymize IBANs', async () => {
       const text = 'Transfer to DE89370400440532013000';
       const result = await anonymizer.anonymize(text);

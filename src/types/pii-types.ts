@@ -8,6 +8,7 @@ export enum PIIType {
   ORG = 'ORG',
   LOCATION = 'LOCATION',
   ADDRESS = 'ADDRESS',
+  POSTAL_CODE = 'POSTAL_CODE',
 
   // Contact information
   EMAIL = 'EMAIL',
@@ -52,8 +53,10 @@ export const ALL_PII_TYPES: readonly PIIType[] = Object.values(PIIType) as PIITy
  * PII types that are detected via regex (structured PII)
  */
 export const REGEX_PII_TYPES: readonly PIIType[] = [
+  PIIType.ADDRESS,
   PIIType.EMAIL,
   PIIType.PHONE,
+  PIIType.POSTAL_CODE,
   PIIType.IBAN,
   PIIType.BIC_SWIFT,
   PIIType.CREDIT_CARD,
@@ -108,6 +111,7 @@ export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   PIIType.PHONE,
   PIIType.EMAIL,
   PIIType.ADDRESS,
+  PIIType.POSTAL_CODE,
   // Higher priority (specific identifiers)
   PIIType.CASE_ID,
   PIIType.CUSTOMER_ID,
@@ -157,4 +161,3 @@ export function getPIITypeFromNERLabel(label: string): PIIType | null {
 
   return NER_LABEL_TO_PII_TYPE[cleanLabel] ?? null;
 }
-

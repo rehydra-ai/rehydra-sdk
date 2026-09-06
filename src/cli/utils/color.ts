@@ -30,6 +30,7 @@ const TYPE_COLORS: Record<string, (text: string) => string> = {
   [PIIType.ORG]: blue,
   [PIIType.LOCATION]: green,
   [PIIType.ADDRESS]: green,
+  [PIIType.POSTAL_CODE]: green,
   [PIIType.EMAIL]: cyan,
   [PIIType.PHONE]: cyan,
   [PIIType.URL]: cyan,
