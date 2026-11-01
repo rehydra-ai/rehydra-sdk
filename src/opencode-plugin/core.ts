@@ -91,6 +91,30 @@ function toolPattern(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
+/**
+ * Binary payloads must reach the provider byte-for-byte. Scrubbing a match
+ * inside base64-encoded bytes produces invalid base64, and providers reject
+ * the whole request (for example DeepInfra answers
+ * "api_error: Non-base64 digit found"). A 5-digit span matching POSTAL_CODE
+ * by chance inside a 57 KB PNG screenshot is enough to trigger it.
+ *
+ * `data:` URIs are recognised by their header and a payload that is base64
+ * throughout, so text before or after one in the same string is still
+ * scrubbed. Raw base64 blobs are recognised by length plus the base64
+ * alphabet; the threshold keeps ordinary prose — and secrets with
+ * recognisable prefixes such as `sk-…`, JWTs, or PEM headers, which contain
+ * characters outside the alphabet — on the scrubbing path.
+ */
+const DATA_URI_HEADER = /^data:(?:[\w.+-]+\/[\w.+-]+)?(?:;[\w.+-]+=[^;,\s]*)*;base64,/i;
+const BASE64_ALPHABET_ONLY = /^[A-Za-z0-9+/=\r\n]+$/;
+const MIN_RAW_BASE64_LENGTH = 512;
+
+function isBinaryPayload(value: string): boolean {
+  const header = DATA_URI_HEADER.exec(value);
+  if (header !== null) return BASE64_ALPHABET_ONLY.test(value.slice(header[0].length));
+  return value.length >= MIN_RAW_BASE64_LENGTH && BASE64_ALPHABET_ONLY.test(value);
+}
+
 /** Scrubs the messages of one model request and logs what it found. */
 export interface RequestScrub {
   /** Anonymizes a string. */
@@ -284,7 +308,12 @@ export async function createRehydraCore(
         value: unknown,
         activePolicy?: Partial<AnonymizationPolicy>,
       ): Promise<unknown> => {
-        if (typeof value === "string") return text(sessionID, value, activePolicy);
+        if (typeof value === "string") {
+          // Binary payloads pass through untouched: scrubbing a match inside
+          // base64 corrupts the data and the provider rejects the request.
+          if (isBinaryPayload(value)) return value;
+          return text(sessionID, value, activePolicy);
+        }
         if (Array.isArray(value)) {
           const result: unknown[] = [];
           for (const item of value) result.push(await copy(sessionID, item, activePolicy));
