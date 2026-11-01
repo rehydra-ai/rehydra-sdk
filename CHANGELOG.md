@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.0...v0.16.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* **opencode:** assign copies of frozen tool input on OpenCode 2 ([c0f16db](https://github.com/rehydra-ai/rehydra-sdk/commit/c0f16dbcd3a4a31f45630c3168f57920a641e4ad))
+* **opencode:** assign copies of frozen tool input on OpenCode 2 ([64dd320](https://github.com/rehydra-ai/rehydra-sdk/commit/64dd3207310311b9afa0c18bc049326107f49703)), closes [#121](https://github.com/rehydra-ai/rehydra-sdk/issues/121)
+* **opencode:** keep image generation prompts redacted by default ([54aedfa](https://github.com/rehydra-ai/rehydra-sdk/commit/54aedfa87ed1ad239217893c091e4665e1f25b18))
+* **opencode:** keep image generation prompts redacted by default ([b7f3dfc](https://github.com/rehydra-ai/rehydra-sdk/commit/b7f3dfc54d9c321c21b1ec50cd841b356365ced5))
+* **proxy:** anonymize tool-call arguments in request history ([9860805](https://github.com/rehydra-ai/rehydra-sdk/commit/98608055fe1edc3698ae5bca748e329da9d555dd))
+* **proxy:** anonymize tool-call arguments in request history ([bc70f03](https://github.com/rehydra-ai/rehydra-sdk/commit/bc70f03599a3b94fe05a099a333e7fc9204d6e77))
+
 ## [0.16.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.15.0...v0.16.0) (2026-10-16)
 
 
