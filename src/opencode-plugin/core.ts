@@ -198,16 +198,23 @@ export async function createRehydraCore(
     options.disableTypes ?? ["URL", "IP_ADDRESS"];
   let policy: Partial<AnonymizationPolicy> | undefined = options.policy;
   if (disableTypes.length > 0) {
+    // Start from the lists the user configured, so types they enabled (for
+    // example ones handled by a custom registry) survive; only the disabled
+    // types are removed.
     const base = createDefaultPolicy();
+    const configPolicy = anonymizerConfig.defaultPolicy;
     const disableSet = new Set<string>(disableTypes);
-    const regexEnabledTypes = new Set(base.regexEnabledTypes);
-    const nerEnabledTypes = new Set(base.nerEnabledTypes);
-    // createDefaultPolicy() excludes secret types (they're opt-in via
-    // AnonymizerConfig.secrets).  Add them back so that passing this
-    // partial policy to mergePolicyWithBase doesn't accidentally drop
-    // the secret types the anonymizer added to its internal default.
-    for (const secretType of SECRET_PII_TYPES) {
-      regexEnabledTypes.add(secretType);
+    const userRegexTypes = policy?.regexEnabledTypes ?? configPolicy?.regexEnabledTypes;
+    const regexEnabledTypes = new Set(userRegexTypes ?? base.regexEnabledTypes);
+    const nerEnabledTypes = new Set(policy?.nerEnabledTypes ?? configPolicy?.nerEnabledTypes ?? base.nerEnabledTypes);
+    // Default lists exclude secret types (they're opt-in via
+    // AnonymizerConfig.secrets, which adds them to the anonymizer's internal
+    // default). Add them back so passing this partial policy doesn't drop
+    // them; an explicit policy.regexEnabledTypes is taken as given.
+    if (policy?.regexEnabledTypes === undefined) {
+      for (const secretType of SECRET_PII_TYPES) {
+        regexEnabledTypes.add(secretType);
+      }
     }
     for (const t of disableSet) {
       const piiType = t as PIIType;
