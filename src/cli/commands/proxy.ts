@@ -46,22 +46,13 @@ function getConnectionHints(
   const lines: string[] = [];
 
   if (provider === "anthropic") {
-    if (hasApiKey) {
-      lines.push(
-        `  ${bold("Claude Code")}`,
-        `    ANTHROPIC_BASE_URL=${baseUrl} claude`,
-      );
-    } else {
-      lines.push(
-        `  ${bold("Claude Code")} ${dim("(requires --api-key)")}`,
-        `    ANTHROPIC_BASE_URL=${baseUrl} claude`,
-      );
-    }
+    // Without --api-key, Claude Code's own credential (a claude.ai login or
+    // ANTHROPIC_API_KEY) passes through the proxy unchanged.
     lines.push(
-      "",
-      `  ${bold("Cursor")}`,
-      `    Settings ${dim("→")} Models ${dim("→")} Anthropic ${dim("→")} Override Base URL`,
-      `    ${dim(baseUrl)}`,
+      hasApiKey
+        ? `  ${bold("Claude Code")}`
+        : `  ${bold("Claude Code")} ${dim("(uses your Claude login or ANTHROPIC_API_KEY)")}`,
+      `    ANTHROPIC_BASE_URL=${baseUrl} claude`,
     );
   } else {
     const upstreamPathSegments = upstream.pathname.split("/").filter(Boolean);
@@ -69,12 +60,8 @@ function getConnectionHints(
       upstreamPathSegments.at(-1) === "v1" ? baseUrl : `${baseUrl}/v1`;
 
     lines.push(
-      `  ${bold("Environment variable")}`,
+      `  ${bold("Environment variable")} ${dim("(Chat Completions API only; Codex is not supported)")}`,
       `    export OPENAI_BASE_URL=${openAIBaseUrl}`,
-      "",
-      `  ${bold("Cursor")}`,
-      `    Settings ${dim("→")} Models ${dim("→")} OpenAI ${dim("→")} Override Base URL`,
-      `    ${dim(openAIBaseUrl)}`,
       "",
       `  ${bold("OpenAI SDK")}`,
       `    ${dim(`new OpenAI({ baseURL: "${openAIBaseUrl}" })`)}`,
