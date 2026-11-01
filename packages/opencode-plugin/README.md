@@ -53,7 +53,7 @@ OpenCode 2 passes options natively, with no local plugin file needed:
         "redactValues": ["sk-live-abc123..."],
         "minValueLength": 6,
         "disableTypes": ["URL", "IP_ADDRESS"],
-        "redactTools": ["webfetch", "websearch", "exa_*"],
+        "redactTools": ["webfetch", "websearch", "*image_generate", "exa_*"],
         "vcsIdentities": true
       }
     }
@@ -98,7 +98,7 @@ export default createRehydraPluginV2({
   disableTypes: ["URL", "IP_ADDRESS"],
 
   // Keep placeholders in the arguments of tools that call external services
-  redactTools: ["webfetch", "websearch", "exa_*"],
+  redactTools: ["webfetch", "websearch", "*image_generate", "exa_*"],
 
   // Redact identities in Git and GitHub CLI output
   vcsIdentities: true,
@@ -109,7 +109,7 @@ On OpenCode 1, import `createRehydraPlugin` instead (it returns the callable V1 
 
 `vcsIdentities` detects logins in `gh pr` and `gh api` output, plus author and committer names in `git log`, `git show`, and `git blame` output. It redacts every occurrence of those identities in the same tool output without touching npm scopes or other `@` identifiers in unrelated commands. GitHub display names outside these structured fields still require the optional local NER model.
 
-`redactTools` lists tools whose arguments keep their placeholders. The plugin normally restores real values before a tool runs. For these tools it leaves the placeholders in place and redacts any other detected values in the arguments, so secrets and PII don't reach external services through tools such as `webfetch` or `websearch`. `*` matches any characters, which helps with MCP tools: `"exa_*"`. The default is `["webfetch", "websearch"]`. Setting `redactTools` replaces it, so keep those two in your list, or pass `[]` to restore real values for every tool.
+`redactTools` lists tools whose arguments keep their placeholders. The plugin normally restores real values before a tool runs. For these tools it leaves the placeholders in place and redacts any other detected values in the arguments, so secrets and PII don't reach external services through tools such as `webfetch`, `websearch`, or OpenCode 2's `experimental_image_generate`, which sends its prompt to an image model. `*` matches any characters, which helps with MCP tools: `"exa_*"`. The default is `["webfetch", "websearch", "*image_generate"]`. Setting `redactTools` replaces it, so keep those in your list, or pass `[]` to restore real values for every tool.
 
 ## What gets detected
 

@@ -23,7 +23,7 @@ export interface RehydraPluginOptions {
 
   /** Tools whose arguments keep their placeholders: real values are not restored before they run,
    * and detected values are redacted. `*` matches any characters, e.g. "exa_*".
-   * Default: ["webfetch", "websearch"]. Pass [] to restore real values for every tool. */
+   * Default: ["webfetch", "websearch", "*image_generate"]. Pass [] to restore real values for every tool. */
   redactTools?: string[];
 
   /** Explicit values to always redact */
