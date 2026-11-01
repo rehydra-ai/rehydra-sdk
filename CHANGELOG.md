@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.5](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.4...v0.16.5) (2026-11-01)
+
+
+### Bug Fixes
+
+* **cli:** correct proxy setup hints and supported-client claims ([392bfdf](https://github.com/rehydra-ai/rehydra-sdk/commit/392bfdf8371d3cd0c046709048926b2def9f77e0))
+* **cli:** correct proxy setup hints and supported-client claims ([9de8f1b](https://github.com/rehydra-ai/rehydra-sdk/commit/9de8f1b50fc1025cb59f19721ca6f42c8ce8c82c))
+* **proxy:** add the PII instruction on every request, after the system prompt ([186faab](https://github.com/rehydra-ai/rehydra-sdk/commit/186faab766fc4e4599837eeba5d3a38345644324))
+* **proxy:** add the PII instruction on every request, after the system prompt ([ea5f4c8](https://github.com/rehydra-ai/rehydra-sdk/commit/ea5f4c80db2f82b2b3e1188de0999a272d865473))
+* **proxy:** drop stale length and encoding headers from rewritten responses ([c74bd25](https://github.com/rehydra-ai/rehydra-sdk/commit/c74bd254c586d0f1a3d8afd5feb835c5258d1e1c))
+* **proxy:** drop stale length and encoding headers from rewritten responses ([f7bbefb](https://github.com/rehydra-ai/rehydra-sdk/commit/f7bbefbb840a75c3a507adbc81ed059857f93e15))
+
 ## [0.16.4](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.3...v0.16.4) (2026-11-01)
 
 
