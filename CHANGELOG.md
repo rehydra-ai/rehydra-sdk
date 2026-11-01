@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.4](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.3...v0.16.4) (2026-11-01)
+
+
+### Bug Fixes
+
+* **opencode:** keep user-enabled types when disableTypes is set ([a7ad4cf](https://github.com/rehydra-ai/rehydra-sdk/commit/a7ad4cf663d499e708785d222dbd11bd5cb26a06))
+* **opencode:** keep user-enabled types when disableTypes is set ([7885add](https://github.com/rehydra-ai/rehydra-sdk/commit/7885addf0e2d9977305accaa90121dced393eab0)), closes [#118](https://github.com/rehydra-ai/rehydra-sdk/issues/118)
+
 ## [0.16.3](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.2...v0.16.3) (2026-11-01)
 
 
