@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.2](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.1...v0.16.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **opencode:** leave binary payloads untouched when scrubbing tool results ([ee7de13](https://github.com/rehydra-ai/rehydra-sdk/commit/ee7de13130b34e9dc81bd8d0b32e9a4862de6683))
+* **opencode:** only skip data URIs whose payload is base64 throughout ([5536662](https://github.com/rehydra-ai/rehydra-sdk/commit/5536662328d244d56c61e7cf2798a7d591a61a13))
+
 ## [0.16.1](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.0...v0.16.1) (2026-11-01)
 
 
