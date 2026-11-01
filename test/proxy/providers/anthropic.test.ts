@@ -118,6 +118,59 @@ describe("AnthropicProvider", () => {
     });
   });
 
+  describe("tool-call input in history", () => {
+    const body = {
+      model: "claude-sonnet-4-20250514",
+      messages: [
+        { role: "user", content: "Email John" },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Sending." },
+            {
+              type: "tool_use",
+              id: "toolu_1",
+              name: "send_email",
+              input: { to: "john@example.com", retries: 3, cc: ["jane@example.com"] },
+            },
+            {
+              type: "server_tool_use",
+              id: "srvtoolu_1",
+              name: "web_search",
+              input: { query: "john@example.com" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "sent" }],
+        },
+      ],
+    };
+
+    it("should extract string values from tool_use and server_tool_use input", () => {
+      expect(provider.extractRequestText(body)).toEqual([
+        "Email John",
+        "Sending.",
+        "john@example.com",
+        "jane@example.com",
+        "john@example.com",
+        "sent",
+      ]);
+    });
+
+    it("should replace string values and keep keys and other values", () => {
+      const texts = provider.extractRequestText(body).map((text) => text.replace(/\w+@example\.com/, "<PII/>"));
+
+      const result = provider.rebuildRequestBody(body, texts) as any;
+
+      expect(result.messages[1].content[1].input).toEqual({ to: "<PII/>", retries: 3, cc: ["<PII/>"] });
+      expect(result.messages[1].content[2].input).toEqual({ query: "<PII/>" });
+      expect(result.messages[2].content[0].content).toBe("sent");
+      expect(body.messages[1].content[1]).toMatchObject({ input: { to: "john@example.com" } });
+    });
+  });
+
   describe("extractResponseText", () => {
     it("should extract text from content blocks", () => {
       const body = {
