@@ -18,6 +18,16 @@
 </p>
 
 <p align="center">
+  <sub>Sponsored by</sub><br/>
+  <a href="https://www.zwrm.eu/developers">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rehydra-ai/rehydra-sdk/main/assets/sponsors/zwrm-dark.svg" />
+      <img src="https://raw.githubusercontent.com/rehydra-ai/rehydra-sdk/main/assets/sponsors/zwrm.svg" width="140" alt="ZWRM" />
+    </picture>
+  </a>
+</p>
+
+<p align="center">
   <code>npm i rehydra</code> · <code>npm i <a href="packages/cli/">@rehydra/cli</a></code> · <code>npm i <a href="packages/opencode-plugin/">@rehydra/opencode</a></code>
 </p>
 
@@ -38,10 +48,10 @@ You need pseudonyms that the LLM can work with, and that your tools can reverse.
 
 ### Proxy — protect your AI coding tools
 
-Run a local proxy that anonymizes PII before it reaches the LLM and rehydrates responses. Works with Claude Code, Cursor, and any OpenAI/Anthropic-compatible client.
+Run a local proxy that anonymizes PII before it reaches the LLM and rehydrates responses. Works with Claude Code and other clients that call the Anthropic Messages API or the OpenAI Chat Completions API. Codex can't use it, because it only calls the OpenAI Responses API. Neither can Cursor, which sends requests through Cursor's own servers.
 
 ```bash
-npx @rehydra/cli proxy claude --api-key sk-ant-...
+npx @rehydra/cli proxy claude
 ```
 
 ```
@@ -59,7 +69,7 @@ npx @rehydra/cli proxy claude --api-key sk-ant-...
 
 Names, emails, phone numbers, and secrets are replaced with placeholders in transit. Tool results (file reads, bash output) are anonymized on the way out. Tool call arguments (file writes, bash commands) are rehydrated on the way back. The LLM never sees real PII — but your tools always get real values.
 
-> **Note:** The proxy requires an [Anthropic API key](https://console.anthropic.com/settings/keys). Claude Max/Pro subscriptions use OAuth which `api.anthropic.com` does not support through proxies.
+> **Note:** No API key is needed for Claude Code. With only `ANTHROPIC_BASE_URL` set, Claude Code keeps using your claude.ai login (Pro/Max) or `ANTHROPIC_API_KEY`, and the proxy forwards it. Pass `--api-key` to send upstream requests with a different key.
 
 ### Browser extension — anonymize ChatGPT and Gemini
 

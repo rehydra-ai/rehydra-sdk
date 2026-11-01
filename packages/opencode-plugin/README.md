@@ -6,7 +6,7 @@ This plugin intercepts the conversation between [OpenCode](https://github.com/an
 
 Detected values are masked in requests that pass through the plugin hooks. Local tools receive the restored values.
 
-**OpenCode compatibility:** the default entrypoint supports both OpenCode 2 (V2 plugin API) and OpenCode 1 (V2 converts the old `plugin` config key and calls `server()` for object entrypoints; OpenCode 1 releases older than 1.18.29 should import the `rehydra` function export or pin `@rehydra/opencode@0.14`). The same package ships both implementations:
+**OpenCode compatibility:** the default entrypoint supports both OpenCode 2 (V2 plugin API, which reads `id` and `setup()`) and OpenCode 1 (1.18.29 and later call `server()` on object entrypoints; older releases should import the `rehydra` function export or pin `@rehydra/opencode@0.14`). OpenCode 2 also accepts the old singular `plugin` config key. The same package ships both implementations:
 
 - OpenCode 2 — `Plugin.define({ id: "rehydra", setup(ctx) })` via `createRehydraPluginV2()`
 - OpenCode 1 — classic hooks object via `createRehydraPlugin()`

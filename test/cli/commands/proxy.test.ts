@@ -344,7 +344,8 @@ describe("proxy command", () => {
       expect(exitCode).toBe(0);
       const output = stderrChunks.join("");
       expect(output).toContain("ANTHROPIC_BASE_URL=http://127.0.0.1:8787");
-      expect(output).toContain("requires --api-key");
+      expect(output).toContain("uses your Claude login or ANTHROPIC_API_KEY");
+      expect(output).not.toContain("Cursor");
       expect(output).toContain("Claude Code");
       expect(output).toContain("anthropic");
     });
@@ -359,7 +360,7 @@ describe("proxy command", () => {
       expect(output).toContain(
         "export OPENAI_BASE_URL=http://127.0.0.1:8787/v1",
       );
-      expect(output).toContain("    http://127.0.0.1:8787/v1");
+      expect(output).not.toContain("Cursor");
       expect(output).toContain(
         'new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" })',
       );
@@ -378,7 +379,7 @@ describe("proxy command", () => {
       expect(output).toContain(
         "export OPENAI_BASE_URL=http://127.0.0.1:8787\n",
       );
-      expect(output).toContain("    http://127.0.0.1:8787\n");
+      expect(output).not.toContain("Cursor");
       expect(output).toContain(
         'new OpenAI({ baseURL: "http://127.0.0.1:8787" })',
       );
@@ -403,7 +404,7 @@ describe("proxy command", () => {
       expect(output).toContain(
         "export OPENAI_BASE_URL=http://127.0.0.1:8787/v1",
       );
-      expect(output).toContain("    http://127.0.0.1:8787/v1");
+      expect(output).not.toContain("Cursor");
       expect(output).toContain(
         'new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" })',
       );
