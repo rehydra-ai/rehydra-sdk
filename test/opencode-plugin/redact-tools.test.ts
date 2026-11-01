@@ -59,11 +59,13 @@ describe("redactTools", () => {
     expect(await runTool(hooks, "my_exa_search", tag)).toBe(SECRET);
   });
 
-  it("keeps webfetch and websearch arguments redacted by default", async () => {
+  it("keeps webfetch, websearch, and image generation arguments redacted by default", async () => {
     const { hooks, tag } = await v1({});
 
     expect(await runTool(hooks, "webfetch", tag)).toBe(tag);
     expect(await runTool(hooks, "websearch", tag)).toBe(tag);
+    expect(await runTool(hooks, "experimental_image_generate", tag)).toBe(tag);
+    expect(await runTool(hooks, "image_generate", tag)).toBe(tag);
     expect(await runTool(hooks, "bash", tag)).toBe(SECRET);
   });
 
@@ -99,5 +101,40 @@ describe("redactTools", () => {
 
     expect(fetch.input.url).toBe(tag);
     expect(bash.input.command).toBe(SECRET);
+  });
+
+  // OpenCode 2's image tool sends its prompt to an image model outside the
+  // session hooks, so the tool hook is the only place to keep it redacted.
+  it("keeps the image generation prompt redacted on OpenCode 2 by default", async () => {
+    const hooks = new Map<string, (event: unknown) => void | Promise<void>>();
+    const register = (prefix: string) =>
+      async (name: string, callback: (event: unknown) => void | Promise<void>): Promise<unknown> => {
+        hooks.set(prefix + name, callback);
+        return { dispose: async (): Promise<void> => {} };
+      };
+    await createRehydraPluginV2({ redactValues: [SECRET], envFiles: [] }).setup({
+      app: { name: "opencode", version: "2.2.5" },
+      location: { directory: "/test" },
+      options: {},
+      session: { hook: register("session.") },
+      tool: { hook: register("tool.") },
+    });
+    const part = { type: "text", text: `Key: ${SECRET}` };
+    await hooks.get("session.context")!({
+      sessionID: "ses-1", system: [], messages: [{ role: "user", content: [part] }],
+    });
+    const tag = part.text.match(/<PII[^/]*\/>/)![0];
+
+    const image = {
+      tool: "experimental_image_generate",
+      sessionID: "ses-1",
+      id: "call-1",
+      input: { prompt: `A poster that reads ${tag}, signed ${SECRET}`, path: "poster.png" },
+    };
+    await hooks.get("tool.execute.before")!(image);
+
+    expect(image.input.prompt).not.toContain(SECRET);
+    expect(image.input.prompt).toMatch(/^A poster that reads <PII[^/]*\/>, signed <PII[^/]*\/>$/);
+    expect(image.input.path).toBe("poster.png");
   });
 });

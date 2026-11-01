@@ -22,7 +22,11 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 export type Log = (level: LogLevel, message: string, extra?: Record<string, unknown>) => void;
 
 const DEFAULT_ENV_REFRESH_INTERVAL = 2000;
-const DEFAULT_REDACT_TOOLS = ["webfetch", "websearch"];
+// Tools that send their arguments to an external service. OpenCode 2's
+// experimental_image_generate sends its prompt straight to an image model,
+// outside the session hooks; the wildcard keeps it covered if the
+// experimental_ prefix is dropped.
+const DEFAULT_REDACT_TOOLS = ["webfetch", "websearch", "*image_generate"];
 
 /**
  * Merges options passed by OpenCode (opencode.json) with factory options.
