@@ -444,6 +444,30 @@ describe("OpenCode Plugin", () => {
       expect(args.config.list[0]).toContain(TEST_SECRET);
     });
 
+    it("should edit the original args object in place", async () => {
+      // OpenCode 1 executes the tool with the args reference it passed in,
+      // so a replacement object would never reach the tool.
+      const msgOutput = {
+        messages: [
+          message("user", [textPart(`Secret: ${TEST_SECRET}`)]),
+        ],
+      };
+      await hooks["experimental.chat.messages.transform"]!({}, msgOutput);
+      const anonymizedText = (msgOutput.messages[0]!.parts[0] as { text: string }).text;
+      const piiTag = anonymizedText.match(/<PII[^/]*\/>/)![0]!;
+
+      const args = { config: { value: `token=${piiTag}` } };
+      const output = { args };
+
+      await hooks["tool.execute.before"]!(
+        { tool: "write", sessionID: "ses-1", callID: "call-in-place" },
+        output,
+      );
+
+      expect(output.args).toBe(args);
+      expect(args.config.value).toBe(`token=${TEST_SECRET}`);
+    });
+
     it("should pass through args without PII tags", async () => {
       const output = {
         args: { command: "ls -la", path: "/home/user" },

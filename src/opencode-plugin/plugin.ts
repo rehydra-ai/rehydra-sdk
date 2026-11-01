@@ -80,6 +80,9 @@ export function createRehydraPlugin(factoryOptions?: RehydraPluginOptions): Plug
     const core = await createRehydraCore(mergeOptions(configOptions, factoryOptions), {
       directory: ctx.directory,
       log,
+      // OpenCode 1 runs tools with the original args reference and ignores
+      // tool.execute.after return values, so edits must happen in place.
+      mutateToolValues: true,
     });
 
     return {

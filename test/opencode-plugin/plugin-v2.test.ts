@@ -7,7 +7,7 @@
  * - setup registers session hooks on context/compaction/generate/title
  * - the session hook scrubs text, tool-call inputs, and tool-result values
  * - the rehydra instruction is pushed into event.system after scrubbing
- * - tool.execute.before rehydrates PII tags in tool arguments (in place)
+ * - tool.execute.before rehydrates PII tags in tool arguments (by copy; input is frozen)
  * - tool.execute.after rehydrates completed results and skips error events
  * - title events are scrubbed (the V1 title leak is fixed in V2)
  */
@@ -72,6 +72,16 @@ function extractTag(text: string): string {
   }
   return match[0] as string;
 }
+
+// OpenCode 2 deep-freezes tool input; writing into it throws in strict mode
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) deepFreeze(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 describe("OpenCode Plugin V2", () => {
   // Plugin under test, built once like the V1 suite
   let plugin: ReturnType<typeof createRehydraPluginV2>;
@@ -454,6 +464,97 @@ describe("OpenCode Plugin V2", () => {
         status: "error",
         error: { message: "boom" },
       });
+    });
+  });
+
+  // Regression for #121: OpenCode 2 deep-freezes tool input, so the hooks
+  // must assign copies instead of writing into it.
+  describe("frozen tool values", () => {
+    async function scrubbedTag(): Promise<string> {
+      const context = hookOf(sessionHooks, "context");
+      const scrubEvent = {
+        sessionID: "ses-frozen",
+        system: [] as Array<{ type: string; text: string }>,
+        messages: [{ role: "user", content: [{ type: "text", text: `Key: ${TEST_SECRET}` }] }],
+      };
+      await context(scrubEvent);
+      return extractTag(scrubEvent.messages[0]!.content[0]!.text);
+    }
+
+    function questionInput(label: string): unknown {
+      return deepFreeze({
+        questions: [
+          {
+            question: "Which environment?",
+            options: [{ label }, { label: "staging" }],
+          },
+        ],
+      });
+    }
+
+    it("should leave deep-frozen nested args without tags untouched", async () => {
+      const before = hookOf(toolHooks, "execute.before");
+      const input = questionInput("production");
+      const event = { tool: "question", sessionID: "ses-frozen", id: "call-q1", input };
+
+      await before(event);
+
+      expect(event.input).toBe(input);
+    });
+
+    it("should assign a rehydrated copy of deep-frozen nested args", async () => {
+      const piiTag = await scrubbedTag();
+      const before = hookOf(toolHooks, "execute.before");
+      const input = questionInput(`use ${piiTag}`);
+      const event = { tool: "question", sessionID: "ses-frozen", id: "call-q2", input };
+
+      await before(event);
+
+      const rehydrated = event.input as {
+        questions: Array<{ options: Array<{ label: string }> }>;
+      };
+      expect(rehydrated).not.toBe(input);
+      expect(rehydrated.questions[0]!.options[0]!.label).toBe(`use ${TEST_SECRET}`);
+      const original = input as typeof rehydrated;
+      expect(rehydrated.questions[0]!.options[1]).toBe(original.questions[0]!.options[1]);
+      expect(original.questions[0]!.options[0]!.label).toBe(`use ${piiTag}`);
+    });
+
+    it("should assign a redacted copy of deep-frozen args for redactTools", async () => {
+      const before = hookOf(toolHooks, "execute.before");
+      const input = deepFreeze({ url: "https://example.com", headers: { auth: TEST_SECRET } });
+      const event = { tool: "webfetch", sessionID: "ses-frozen", id: "call-w1", input };
+
+      await before(event);
+
+      const redacted = event.input as { headers: { auth: string } };
+      expect(redacted.headers.auth).not.toContain(TEST_SECRET);
+      expect(redacted.headers.auth).toContain("<PII");
+      expect(input.headers.auth).toBe(TEST_SECRET);
+    });
+
+    it("should assign a rehydrated copy of a deep-frozen result", async () => {
+      const piiTag = await scrubbedTag();
+      const after = hookOf(toolHooks, "execute.after");
+      const result = deepFreeze({
+        output: `API_KEY=${piiTag}`,
+        content: [{ type: "text", text: `API_KEY=${piiTag}` }],
+      });
+      const event = {
+        tool: "shell",
+        sessionID: "ses-frozen",
+        id: "call-s1",
+        status: "completed" as const,
+        result,
+      };
+
+      await after(event);
+
+      const rehydrated = event.result as { output: string; content: Array<{ text: string }> };
+      expect(rehydrated).not.toBe(result);
+      expect(rehydrated.output).toBe(`API_KEY=${TEST_SECRET}`);
+      expect(rehydrated.content[0]!.text).toBe(`API_KEY=${TEST_SECRET}`);
+      expect(result.output).toBe(`API_KEY=${piiTag}`);
     });
   });
 

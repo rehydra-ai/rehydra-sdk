@@ -37,39 +37,48 @@ export function mergeOptions(
 
 /**
  * Recursively rehydrate all string values containing PII tags.
- * Returns a new value (for strings/arrays) or the same object mutated in-place
- * (for plain objects). The in-place mutation is required because OpenCode's
- * tool.execute.before hook uses the original args reference for execution —
- * replacing the object wholesale has no effect.
+ * See deepMapStrings for what `inPlace` does.
  */
 export async function deepRehydrate(
   value: unknown,
   session: AnonymizerSessionImpl,
   tagPrefix: string,
+  inPlace: boolean,
 ): Promise<unknown> {
-  return deepMapStrings(value, (text) => text.includes(tagPrefix) ? session.rehydrate(text) : text);
+  return deepMapStrings(value, (text) => text.includes(tagPrefix) ? session.rehydrate(text) : text, inPlace);
 }
 
-/** Applies `map` to every string, mutating arrays and objects in place. */
+/**
+ * Applies `map` to every string.
+ *
+ * In place, arrays and objects are mutated: OpenCode 1 runs tools with the
+ * original args reference, so replacing the object wholesale has no effect.
+ * Otherwise they are never written to, because OpenCode 2 deep-freezes tool
+ * input and uses the value the hook assigns back. A container is copied only
+ * when one of its strings changes; when nothing changes, the original value
+ * is returned.
+ */
 async function deepMapStrings(
   value: unknown,
   map: (text: string) => string | Promise<string>,
+  inPlace: boolean,
 ): Promise<unknown> {
   if (typeof value === "string") return map(value);
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      (value as unknown[])[i] = await deepMapStrings(value[i], map);
-    }
-    return value as unknown;
+  if (value === null || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  let target = inPlace ? source : undefined;
+  for (const key of Object.keys(source)) {
+    const item = await deepMapStrings(source[key], map, inPlace);
+    if (target === undefined && item !== source[key]) target = copyContainer(source);
+    if (target !== undefined) target[key] = item;
   }
-  if (value !== null && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    for (const key of Object.keys(obj)) {
-      obj[key] = await deepMapStrings(obj[key], map);
-    }
-    return obj;
-  }
-  return value;
+  return target ?? value;
+}
+
+/** Shallow, unfrozen copy of an array or object that keeps its prototype. */
+function copyContainer(value: Record<string, unknown>): Record<string, unknown> {
+  if (Array.isArray(value)) return value.slice() as unknown as Record<string, unknown>;
+  return Object.assign(Object.create(Object.getPrototypeOf(value) as object | null) as object, value) as Record<string, unknown>;
 }
 
 /** Converts a tool name pattern with `*` wildcards to an anchored regex. */
@@ -109,9 +118,16 @@ export interface RehydraCore {
 
 export async function createRehydraCore(
   options: RehydraPluginOptions,
-  context: { directory: string; log: Log; info?: Record<string, unknown> },
+  context: {
+    directory: string;
+    log: Log;
+    info?: Record<string, unknown>;
+    /** Edit tool args and results in place (OpenCode 1) instead of returning copies (OpenCode 2). */
+    mutateToolValues?: boolean;
+  },
 ): Promise<RehydraCore> {
   const { log } = context;
+  const inPlace = context.mutateToolValues === true;
   const keyProvider = new InMemoryKeyProvider();
   const piiStorage = new InMemoryPIIStorageProvider();
 
@@ -332,8 +348,12 @@ export async function createRehydraCore(
       const before = JSON.stringify(args);
       const redacted = redactTools.some((pattern) => pattern.test(tool));
       const result = redacted
-        ? await deepMapStrings(args, async (text) => (await session.anonymize(text, locale, policy)).anonymizedText)
-        : await deepRehydrate(args, session, tagPrefix);
+        ? await deepMapStrings(
+          args,
+          async (text) => (await session.anonymize(text, locale, policy)).anonymizedText,
+          inPlace,
+        )
+        : await deepRehydrate(args, session, tagPrefix, inPlace);
 
       if (redacted) {
         log("info", "kept tool args redacted", { tool, callID });
@@ -345,7 +365,7 @@ export async function createRehydraCore(
 
     async afterTool(tool: string, sessionID: string, callID: string, result: unknown): Promise<unknown> {
       const before = JSON.stringify(result);
-      const rehydrated = await deepRehydrate(result, getSession(sessionID), tagPrefix);
+      const rehydrated = await deepRehydrate(result, getSession(sessionID), tagPrefix, inPlace);
       if (JSON.stringify(rehydrated) !== before) {
         log("info", "rehydrated PII tags in tool result", { tool, callID });
       }

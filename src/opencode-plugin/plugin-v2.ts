@@ -9,7 +9,7 @@
  *   -------------------------------------- -----------------------------------------------------
  *   experimental.chat.messages.transform   ctx.session.hook("context" | "compaction" | "generate" | "title")
  *   experimental.chat.system.transform     same hooks — event.system.push({ type: "text", text })
- *   tool.execute.before                    ctx.tool.hook("execute.before") — mutate event.input in place
+ *   tool.execute.before                    ctx.tool.hook("execute.before") — assign a copy to event.input (input is frozen)
  *   tool.execute.after                     ctx.tool.hook("execute.after")  — event.result / event.status
  *   experimental.text.complete             no V2 equivalent (documented gap — see README)
  *   client.app.log                         console.* (captured by OpenCode's log service)
