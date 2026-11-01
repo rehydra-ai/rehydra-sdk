@@ -135,7 +135,8 @@ export interface LLMContentProvider {
   /**
    * Inject a system-level instruction into the request body.
    * Used to tell the model how to handle PII placeholders in tool calls.
-   * Returns a new body with the instruction prepended to the system prompt.
+   * Returns a new body with the instruction added to the system prompt,
+   * leaving the existing system content where it is.
    */
   injectSystemInstruction?(body: unknown, instruction: string): unknown;
 }

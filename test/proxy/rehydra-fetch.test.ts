@@ -266,6 +266,34 @@ describe("createRehydraFetch", () => {
     }
   });
 
+  // Providers reject earlier thinking when the system prompt differs from the
+  // request that produced it, so the instruction must not appear only once PII does.
+  it("should send the same system prompt on turns with and without PII", async () => {
+    mockServer = await createMockLLMServer();
+    const { port, receivedBodies } = mockServer;
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "anthropic",
+      getSessionId: async () => "test-session",
+    });
+    const attribution = { type: "text", text: "x-anthropic-billing-header: cc_version=2.1.316" };
+    const send = (content: string): Promise<Response> =>
+      rehydraFetch(`http://127.0.0.1:${port}/v1/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "test", max_tokens: 100, system: [attribution], messages: [{ role: "user", content }] }),
+      });
+
+    await send("Hello there");
+    await send("Mail john@example.com");
+
+    const [first, second] = receivedBodies as Array<{ system: unknown[] }>;
+    expect(first!.system).toEqual(second!.system);
+    expect(first!.system[0]).toEqual(attribution);
+    expect(first!.system).toHaveLength(2);
+  });
+
   it("should pass through non-POST requests unchanged", async () => {
     mockServer = await createMockLLMServer();
     const { port } = mockServer;

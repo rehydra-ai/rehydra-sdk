@@ -347,14 +347,14 @@ export class AnthropicProvider implements LLMContentProvider {
 
   injectSystemInstruction(body: unknown, instruction: string): unknown {
     const req = structuredClone(body) as AnthropicMessagesRequest;
-    // Prepend to the existing system prompt
+    // Append after the existing system content. Claude Code's attribution
+    // block must stay the first system entry, unchanged: api.anthropic.com
+    // strips it only there, and otherwise it reaches the model and the
+    // prompt cache key.
     if (typeof req.system === "string") {
-      req.system = instruction + "\n\n" + req.system;
+      req.system = req.system + "\n\n" + instruction;
     } else if (Array.isArray(req.system)) {
-      req.system = [
-        { type: "text", text: instruction },
-        ...req.system,
-      ];
+      req.system = [...req.system, { type: "text", text: instruction }];
     } else {
       req.system = instruction;
     }

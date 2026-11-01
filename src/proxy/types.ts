@@ -75,8 +75,9 @@ export interface RehydraFetchConfig {
   locale?: string;
 
   /**
-   * System instruction injected when PII is detected, telling the model
-   * to treat PII placeholders as opaque pass-through values.
+   * System instruction injected into every request, telling the model to
+   * treat PII placeholders as opaque pass-through values. It is added on
+   * every request so the system prompt stays the same across a conversation.
    *
    * - `undefined` (default): uses the built-in instruction
    * - `string`: uses your custom instruction text
