@@ -392,7 +392,7 @@ async function rehydrateJSONResponseFromBody(
   return new Response(JSON.stringify(rehydratedBody), {
     status: response.status,
     statusText: response.statusText,
-    headers: response.headers,
+    headers: stripResponseHeaders(response.headers),
   });
 }
 
@@ -834,6 +834,6 @@ function rehydrateSSEResponse(
   return new Response(transformedBody, {
     status: response.status,
     statusText: response.statusText,
-    headers: response.headers,
+    headers: stripResponseHeaders(response.headers),
   });
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 import { createRehydraFetch } from "../../src/proxy/rehydra-fetch.js";
 import { InMemoryKeyProvider } from "../../src/crypto/index.js";
 import { InMemoryPIIStorageProvider } from "../../src/storage/in-memory.js";
@@ -205,6 +206,64 @@ describe("createRehydraFetch", () => {
     const input = (receivedBodies[0] as any).messages[1].content[0].input;
     expect(input.to).toMatch(/^<PII type="EMAIL" id="\d+"\/>$/);
     expect(input.attempts).toBe(1);
+  });
+
+  // fetch() decompresses upstream bodies and the proxy rewrites them, so the
+  // upstream content-length and content-encoding no longer describe the body.
+  // Forwarded as-is, clients truncate the body or try to gunzip plain text.
+  describe("with a compressing upstream", () => {
+    let gzipServer: Server | null = null;
+
+    afterEach(async () => {
+      if (gzipServer !== null) {
+        await new Promise<void>((resolve) => gzipServer!.close(() => resolve()));
+        gzipServer = null;
+      }
+    });
+
+    async function startGzipServer(): Promise<number> {
+      gzipServer = createServer(async (req, res) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        const body = JSON.parse(Buffer.concat(chunks).toString()) as { stream?: boolean; messages: Array<{ content: string }> };
+        const prompt = body.messages[body.messages.length - 1]!.content;
+        const payload = body.stream === true
+          ? `data: ${JSON.stringify({ choices: [{ delta: { content: `Echo: ${prompt}` } }] })}\n\ndata: [DONE]\n\n`
+          : JSON.stringify({ choices: [{ message: { role: "assistant", content: `Echo: ${prompt}` } }] });
+        const compressed = gzipSync(payload);
+        res.writeHead(200, {
+          "Content-Type": body.stream === true ? "text/event-stream" : "application/json",
+          "Content-Encoding": "gzip",
+          "Content-Length": String(compressed.length),
+        });
+        res.end(compressed);
+      });
+      await new Promise<void>((resolve) => gzipServer!.listen(0, "127.0.0.1", () => resolve()));
+      const addr = gzipServer.address();
+      return typeof addr === "object" && addr !== null ? addr.port : 0;
+    }
+
+    for (const stream of [false, true]) {
+      it(`should drop stale length and encoding headers (${stream ? "SSE" : "JSON"})`, async () => {
+        const port = await startGzipServer();
+        const rehydraFetch = createRehydraFetch({
+          keyProvider: new InMemoryKeyProvider(),
+          piiStorageProvider: new InMemoryPIIStorageProvider(),
+          provider: "openai",
+          getSessionId: async () => "test-session",
+        });
+
+        const response = await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "test", stream, messages: [{ role: "user", content: "Mail john@example.com" }] }),
+        });
+
+        expect(response.headers.get("content-encoding")).toBeNull();
+        expect(response.headers.get("content-length")).toBeNull();
+        expect(await response.text()).toContain("john@example.com");
+      });
+    }
   });
 
   it("should pass through non-POST requests unchanged", async () => {
