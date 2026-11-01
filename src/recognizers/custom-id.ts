@@ -8,11 +8,13 @@ import { PIIType, SpanMatch, DetectionSource, CustomIdPattern } from '../types/i
 import type { Recognizer } from './base.js';
 
 /**
- * Creates a custom ID recognizer from patterns defined in policy
+ * Creates a custom ID recognizer from patterns defined in policy.
+ * It registers under its first pattern's type; each match keeps its
+ * pattern's type, and the registry checks that type against the policy.
  */
 export function createCustomIdRecognizer(patterns: CustomIdPattern[]): Recognizer {
   return {
-    type: PIIType.CASE_ID, // Default type, will be overridden per pattern
+    type: patterns[0]?.type ?? PIIType.CASE_ID,
     name: 'Custom ID',
     defaultConfidence: 0.9,
 
