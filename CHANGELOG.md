@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.3](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.2...v0.16.3) (2026-11-01)
+
+
+### Bug Fixes
+
+* apply policy.customIdPatterns and gate custom IDs by their own type ([8b84434](https://github.com/rehydra-ai/rehydra-sdk/commit/8b84434c56f36ab56208397ea60c93bb2c29bfa7))
+* apply policy.customIdPatterns and gate custom IDs by their own type ([775d6de](https://github.com/rehydra-ai/rehydra-sdk/commit/775d6decd3b76b4d1c50ecf7a267359fc0963fdb)), closes [#117](https://github.com/rehydra-ai/rehydra-sdk/issues/117)
+
 ## [0.16.2](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.1...v0.16.2) (2026-11-01)
 
 
