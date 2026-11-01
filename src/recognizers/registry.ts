@@ -5,6 +5,25 @@
 
 import { PIIType, SpanMatch, AnonymizationPolicy } from '../types/index.js';
 import type { Recognizer } from './base.js';
+import { createCustomIdRecognizer } from './custom-id.js';
+
+const BUILT_IN_TYPES = new Set<string>(Object.values(PIIType));
+
+/**
+ * Whether regex detection is on for a type. Custom types outside PIIType
+ * (issue #68) are never in the default regexEnabledTypes, so they only
+ * need to be in enabledTypes.
+ */
+function isRegexEnabled(type: PIIType, policy: AnonymizationPolicy): boolean {
+  if (!policy.enabledTypes.has(type)) return false;
+  return !BUILT_IN_TYPES.has(type) || policy.regexEnabledTypes.has(type);
+}
+
+/** Whether a match's own type is enabled and it passes the type's confidence threshold. */
+function isRegexMatchEnabled(match: SpanMatch, policy: AnonymizationPolicy): boolean {
+  if (!isRegexEnabled(match.type, policy)) return false;
+  return match.confidence >= (policy.confidenceThresholds.get(match.type) ?? 0.5);
+}
 
 /**
  * Registry for managing PII recognizers
@@ -101,22 +120,24 @@ export class RecognizerRegistry {
 
     for (const [type, recognizers] of this.recognizers) {
       // Skip types not enabled in policy
-      if (!policy.enabledTypes.has(type) || !policy.regexEnabledTypes.has(type)) {
+      if (!isRegexEnabled(type, policy)) {
         continue;
       }
 
-      // Get confidence threshold for this type
-      const threshold = policy.confidenceThresholds.get(type) ?? 0.5;
-
+      // Check each match's own type too: a recognizer can emit types other
+      // than the one it is registered under (createCustomIdRecognizer).
       for (const recognizer of recognizers) {
-        const typeMatches = recognizer.find(text);
-
-        // Filter by confidence threshold
-        for (const match of typeMatches) {
-          if (match.confidence >= threshold) {
-            matches.push(match);
-          }
+        for (const match of recognizer.find(text)) {
+          if (isRegexMatchEnabled(match, policy)) matches.push(match);
         }
+      }
+    }
+
+    // Patterns from the policy run per call, under the same rules.
+    const customIdPatterns = policy.customIdPatterns ?? [];
+    if (customIdPatterns.length > 0) {
+      for (const match of createCustomIdRecognizer(customIdPatterns).find(text)) {
+        if (isRegexMatchEnabled(match, policy)) matches.push(match);
       }
     }
 
