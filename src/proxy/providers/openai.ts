@@ -10,11 +10,17 @@ import type {
   ToolCallInfo,
   ToolResultMessage,
 } from "./types.js";
+import { mapJsonStrings, parseJsonArguments } from "./json-strings.js";
 
 interface OpenAIMessage {
   role: string;
   content: string | OpenAIContentPart[] | null;
   name?: string;
+  /**
+   * Responses get real values restored in tool-call arguments, so clients
+   * send the real values back in later requests' history.
+   */
+  tool_calls?: OpenAIToolCall[];
 }
 
 interface OpenAIContentPart {
@@ -99,6 +105,19 @@ export class OpenAIProvider implements LLMContentProvider {
           }
         }
       }
+      for (const toolCall of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+        const args = toolCall.function?.arguments;
+        if (typeof args !== "string") continue;
+        const parsed = parseJsonArguments(args);
+        if (parsed === undefined) {
+          texts.push(args);
+          continue;
+        }
+        mapJsonStrings(parsed.value, (text) => {
+          texts.push(text);
+          return text;
+        });
+      }
     }
     return texts;
   }
@@ -116,6 +135,23 @@ export class OpenAIProvider implements LLMContentProvider {
             part.text = anonymizedTexts[idx++]!;
           }
         }
+      }
+      for (const toolCall of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+        const args = toolCall.function?.arguments;
+        if (typeof args !== "string") continue;
+        const parsed = parseJsonArguments(args);
+        if (parsed === undefined) {
+          toolCall.function.arguments = anonymizedTexts[idx++]!;
+          continue;
+        }
+        let changed = false;
+        const mapped = mapJsonStrings(parsed.value, (text) => {
+          const anonymized = anonymizedTexts[idx++]!;
+          if (anonymized !== text) changed = true;
+          return anonymized;
+        });
+        // Keep the client's formatting when nothing was scrubbed
+        if (changed) toolCall.function.arguments = JSON.stringify(mapped);
       }
     }
     return req;

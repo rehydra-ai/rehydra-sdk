@@ -10,6 +10,14 @@ import type {
   ToolCallInfo,
   ToolResultMessage,
 } from "./types.js";
+import { mapJsonStrings } from "./json-strings.js";
+
+/**
+ * Tool-call blocks whose input the model wrote. Responses get real values
+ * restored in these inputs, so clients send the real values back in later
+ * requests' history and they must be scrubbed again.
+ */
+const TOOL_USE_TYPES = new Set(["tool_use", "server_tool_use"]);
 
 interface AnthropicMessage {
   role: string;
@@ -89,6 +97,11 @@ export class AnthropicProvider implements LLMContentProvider {
         for (const block of message.content) {
           if (block.type === "text" && typeof block.text === "string") {
             texts.push(block.text);
+          } else if (TOOL_USE_TYPES.has(block.type) && block.input !== undefined) {
+            mapJsonStrings(block.input, (text) => {
+              texts.push(text);
+              return text;
+            });
           } else if (block.type === "tool_result") {
             // tool_result content can be a string or an array of content blocks
             if (typeof block.content === "string") {
@@ -130,6 +143,8 @@ export class AnthropicProvider implements LLMContentProvider {
         for (const block of message.content) {
           if (block.type === "text" && typeof block.text === "string") {
             block.text = anonymizedTexts[idx++]!;
+          } else if (TOOL_USE_TYPES.has(block.type) && block.input !== undefined) {
+            block.input = mapJsonStrings(block.input, () => anonymizedTexts[idx++]!) as Record<string, unknown>;
           } else if (block.type === "tool_result") {
             if (typeof block.content === "string") {
               block.content = anonymizedTexts[idx++]!;

@@ -123,6 +123,90 @@ describe("createRehydraFetch", () => {
     expect(content).toContain("john@example.com");
   });
 
+  // Responses get real values restored in tool-call arguments, so clients send
+  // them back in the next request's history. They must not reach the provider.
+  it("should anonymize OpenAI tool-call arguments in request history", async () => {
+    mockServer = await createMockLLMServer();
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "openai",
+      getSessionId: async () => "test-session",
+    });
+
+    await rehydraFetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "test",
+        messages: [
+          { role: "user", content: "Email the report" },
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [{
+              id: "call_1",
+              type: "function",
+              function: { name: "send_email", arguments: JSON.stringify({ to: "john@example.com" }) },
+            }],
+          },
+          { role: "tool", tool_call_id: "call_1", content: "sent" },
+        ],
+      }),
+    });
+
+    const sent = JSON.stringify(receivedBodies[0]);
+    expect(sent).not.toContain("john@example.com");
+    const assistant = ((receivedBodies[0] as any).messages as any[]).find((m) => m.role === "assistant");
+    const toolCall = assistant.tool_calls[0];
+    expect(JSON.parse(toolCall.function.arguments).to).toMatch(/^<PII type="EMAIL" id="\d+"\/>$/);
+  });
+
+  it("should anonymize Anthropic tool_use input in request history", async () => {
+    mockServer = await createMockLLMServer();
+    const { port, receivedBodies } = mockServer;
+
+    const rehydraFetch = createRehydraFetch({
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      provider: "anthropic",
+      getSessionId: async () => "test-session",
+    });
+
+    await rehydraFetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "test",
+        max_tokens: 100,
+        messages: [
+          { role: "user", content: "Email the report" },
+          {
+            role: "assistant",
+            content: [{
+              type: "tool_use",
+              id: "toolu_1",
+              name: "send_email",
+              input: { to: "john@example.com", attempts: 1 },
+            }],
+          },
+          {
+            role: "user",
+            content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "sent" }],
+          },
+        ],
+      }),
+    });
+
+    const sent = JSON.stringify(receivedBodies[0]);
+    expect(sent).not.toContain("john@example.com");
+    const input = (receivedBodies[0] as any).messages[1].content[0].input;
+    expect(input.to).toMatch(/^<PII type="EMAIL" id="\d+"\/>$/);
+    expect(input.attempts).toBe(1);
+  });
+
   it("should pass through non-POST requests unchanged", async () => {
     mockServer = await createMockLLMServer();
     const { port } = mockServer;

@@ -109,6 +109,49 @@ describe("OpenAIProvider", () => {
     });
   });
 
+  describe("tool-call arguments in history", () => {
+    const args = '{ "to": "john@example.com", "retries": 3, "cc": ["jane@example.com"] }';
+    const body = {
+      model: "gpt-4",
+      messages: [
+        { role: "user", content: "Email John" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            { id: "call_1", type: "function", function: { name: "send_email", arguments: args } },
+            { id: "call_2", type: "function", function: { name: "note", arguments: "not json john@example.com" } },
+            { id: "call_3", type: "function", function: { name: "list", arguments: '{ "dir": "src" }' } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "sent" },
+      ],
+    };
+
+    it("should extract string values from JSON arguments and whole invalid arguments", () => {
+      expect(provider.extractRequestText(body)).toEqual([
+        "Email John",
+        "john@example.com",
+        "jane@example.com",
+        "not json john@example.com",
+        "src",
+        "sent",
+      ]);
+    });
+
+    it("should re-serialize changed arguments and keep unchanged ones as sent", () => {
+      const texts = provider.extractRequestText(body).map((text) => text.replace(/\w+@example\.com/, "<PII/>"));
+
+      const result = provider.rebuildRequestBody(body, texts) as any;
+      const toolCalls = result.messages[1].tool_calls;
+
+      expect(JSON.parse(toolCalls[0].function.arguments)).toEqual({ to: "<PII/>", retries: 3, cc: ["<PII/>"] });
+      expect(toolCalls[1].function.arguments).toBe("not json <PII/>");
+      expect(toolCalls[2].function.arguments).toBe('{ "dir": "src" }');
+      expect(body.messages[1].tool_calls![0]!.function.arguments).toBe(args);
+    });
+  });
+
   describe("extractResponseText", () => {
     it("should extract content from choices", () => {
       const body = {
