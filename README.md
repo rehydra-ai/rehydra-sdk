@@ -18,6 +18,16 @@
 </p>
 
 <p align="center">
+  <sub>Sponsored by</sub><br/>
+  <a href="https://www.zwrm.eu/developers">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rehydra-ai/rehydra-sdk/main/assets/sponsors/zwrm-dark.svg" />
+      <img src="https://raw.githubusercontent.com/rehydra-ai/rehydra-sdk/main/assets/sponsors/zwrm.svg" width="140" alt="ZWRM" />
+    </picture>
+  </a>
+</p>
+
+<p align="center">
   <code>npm i rehydra</code> · <code>npm i <a href="packages/cli/">@rehydra/cli</a></code> · <code>npm i <a href="packages/opencode-plugin/">@rehydra/opencode</a></code>
 </p>
 
@@ -217,10 +227,6 @@ await anonymizer.dispose();
 ## Documentation
 
 For API reference, configuration, guides, and examples, visit **[docs.rehydra.ai](https://docs.rehydra.ai)**.
-
-## Sponsors
-
-<a href="https://www.zwrm.eu/developers"><img src="https://raw.githubusercontent.com/rehydra-ai/rehydra-sdk/main/assets/sponsors/zwrm.svg" width="200" alt="ZWRM" /></a>
 
 ## License
 
