@@ -171,7 +171,6 @@ export function createRehydraFetch(
       // Extract and anonymize text from the request
       const texts = provider.extractRequestText(body);
       const anonymizedTexts: string[] = [];
-      let piiDetected = false;
       const countsByType: Record<string, number> = {};
       let totalEntities = 0;
 
@@ -182,9 +181,6 @@ export function createRehydraFetch(
           config.policy,
         );
         anonymizedTexts.push(result.anonymizedText);
-        if (result.anonymizedText !== texts[i]) {
-          piiDetected = true;
-        }
         for (const [type, count] of Object.entries(result.stats.countsByType)) {
           if (count > 0) {
             countsByType[type] = (countsByType[type] ?? 0) + count;
@@ -206,10 +202,12 @@ export function createRehydraFetch(
       // Rebuild the request body with anonymized text
       let anonymizedBody = provider.rebuildRequestBody(body, anonymizedTexts);
 
-      // Inject PII handling instruction when anonymization replaced something.
-      // Can be disabled with systemInstruction: false, or overridden with a custom string.
+      // Inject the PII handling instruction on every request, not only once PII
+      // appears: providers check that the system prompt matches the request
+      // that produced earlier thinking, and a mid-conversation change breaks
+      // that check and the prompt cache. Can be disabled with
+      // systemInstruction: false, or overridden with a custom string.
       if (
-        piiDetected &&
         config.systemInstruction !== false &&
         provider.injectSystemInstruction !== undefined
       ) {

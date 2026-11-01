@@ -171,6 +171,29 @@ describe("AnthropicProvider", () => {
     });
   });
 
+  describe("injectSystemInstruction", () => {
+    it("should append a block and keep the existing blocks first and unchanged", () => {
+      const attribution = { type: "text", text: "x-anthropic-billing-header: cc_version=2.1.316" };
+      const prompt = { type: "text", text: "You are Claude Code.", cache_control: { type: "ephemeral" } };
+      const body = { model: "m", system: [attribution, prompt], messages: [] };
+
+      const result = provider.injectSystemInstruction(body, "PII rules") as any;
+
+      expect(result.system).toEqual([attribution, prompt, { type: "text", text: "PII rules" }]);
+      expect(body.system).toHaveLength(2);
+    });
+
+    it("should append to a string system prompt", () => {
+      const result = provider.injectSystemInstruction({ model: "m", system: "Be brief.", messages: [] }, "PII rules") as any;
+      expect(result.system).toBe("Be brief.\n\nPII rules");
+    });
+
+    it("should set the system prompt when there is none", () => {
+      const result = provider.injectSystemInstruction({ model: "m", messages: [] }, "PII rules") as any;
+      expect(result.system).toBe("PII rules");
+    });
+  });
+
   describe("extractResponseText", () => {
     it("should extract text from content blocks", () => {
       const body = {
