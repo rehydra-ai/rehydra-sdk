@@ -218,6 +218,10 @@ await anonymizer.dispose();
 
 For API reference, configuration, guides, and examples, visit **[docs.rehydra.ai](https://docs.rehydra.ai)**.
 
+## Sponsors
+
+<a href="https://www.zwrm.eu/developers"><img src="https://raw.githubusercontent.com/rehydra-ai/rehydra-sdk/main/assets/sponsors/zwrm.svg" width="200" alt="ZWRM" /></a>
+
 ## License
 
 [MIT](LICENSE)
