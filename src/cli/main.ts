@@ -6,6 +6,7 @@ import { rehydrateCommand } from "./commands/rehydrate.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { setupNerCommand } from "./commands/setup-ner.js";
 import { proxyCommand } from "./commands/proxy.js";
+import { serveCommand } from "./commands/serve.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../../package.json") as { version: string };
@@ -30,6 +31,10 @@ export interface ParsedOptions {
   "tag-close"?: string;
   "tag-keyword"?: string;
   credentials?: string;
+  socket?: string;
+  token?: string;
+  db?: string;
+  "redact-tools"?: string;
 }
 
 const HELP_TEXT = `
@@ -43,6 +48,7 @@ ${bold("COMMANDS")}
   rehydrate <file>        Rehydrate a previously anonymized file
   inspect <file>          Show detected PII without anonymizing (dry run)
   proxy <provider>        Start a PII-filtering proxy for LLM APIs
+  serve                   Anonymize and rehydrate as an HTTP service for sandboxed agents
   setup-ner               Download and set up NER model
 
 ${bold("OPTIONS")}
@@ -62,7 +68,11 @@ ${bold("OPTIONS")}
       --tag-open <str>     Tag open delimiter (default: "<")
       --tag-close <str>    Tag close delimiter (default: "/>")
       --tag-keyword <str>  Tag keyword (default: "PII")
-      --credentials <file> JSON file of named credentials the agent may use in tool calls (proxy)
+      --credentials <file> JSON file of named credentials the agent may use in tool calls (proxy, serve)
+      --socket <path>      Listen on a Unix socket instead of a port (serve)
+      --token <token>      Bearer token clients must send (serve; or REHYDRA_SERVE_TOKEN)
+      --db <file>          SQLite file for session PII maps; needs --key (serve)
+      --redact-tools <list> Comma-separated tools whose arguments keep placeholders (serve)
       --no-color           Disable colored output
       --verbose            Show detection details
   -q, --quiet              Suppress non-essential output
@@ -91,6 +101,9 @@ ${bold("EXAMPLES")}
 
   ${dim("# Start a proxy and log what PII is anonymized per request")}
   rehydra proxy openai --verbose
+
+  ${dim("# Serve anonymize/rehydrate for a sandboxed agent on a Unix socket")}
+  rehydra serve --socket /run/rehydra.sock --token "$REHYDRA_SERVE_TOKEN"
 
 ${bold("EXIT CODES")}
   0  Success
@@ -123,6 +136,10 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
         "tag-close": { type: "string" },
         "tag-keyword": { type: "string" },
         credentials: { type: "string" },
+        socket: { type: "string" },
+        token: { type: "string" },
+        db: { type: "string" },
+        "redact-tools": { type: "string" },
         "no-color": { type: "boolean", default: false },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", short: "q", default: false },
@@ -183,6 +200,10 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
     "tag-close": values["tag-close"] as string | undefined,
     "tag-keyword": values["tag-keyword"] as string | undefined,
     credentials: values["credentials"] as string | undefined,
+    socket: values["socket"] as string | undefined,
+    token: values["token"] as string | undefined,
+    db: values["db"] as string | undefined,
+    "redact-tools": values["redact-tools"] as string | undefined,
   };
 
   switch (command) {
@@ -200,6 +221,13 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
         options.ner = "quantized";
       }
       return proxyCommand(filePath, options);
+    }
+    case "serve": {
+      // Like proxy: detect names by default unless --ner says otherwise
+      if (values["ner"] === undefined) {
+        options.ner = "quantized";
+      }
+      return serveCommand(options);
     }
     case "setup-ner":
       return setupNerCommand(options);
