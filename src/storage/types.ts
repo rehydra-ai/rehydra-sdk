@@ -144,6 +144,12 @@ export interface AnonymizerSession {
 
   /**
    * Anonymize text and automatically save the encrypted PII map
+   *
+   * Calls for the same session ID and storage provider run one at a time,
+   * so parallel calls get distinct IDs and none of their entries are lost.
+   * This holds within one process only. Separate processes that share a
+   * storage backend are not coordinated.
+   *
    * @param text - Input text to anonymize
    * @param locale - Optional locale hint (e.g., 'de-DE', 'en-US')
    * @param policy - Optional policy override
@@ -228,6 +234,12 @@ export interface AnonymizerSession {
    * Create a streaming anonymizer bound to this session.
    * The stream automatically uses this session's ID, storage, and key provider.
    * Node.js/Bun only — not available in browser builds.
+   *
+   * The stream copies the session's PII map when it is created and assigns
+   * IDs from that copy until it ends. Don't call `anonymize()` on the same
+   * session while a stream is running: both can assign the same ID to
+   * different values, and the stream's save overwrites entries that
+   * `anonymize()` added in the meantime.
    *
    * @param config - Optional stream configuration overrides
    * @returns A Transform stream that anonymizes text chunk-by-chunk
