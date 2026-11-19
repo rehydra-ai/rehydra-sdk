@@ -135,6 +135,35 @@ The CLI proxy sits between your coding agent and the API. It anonymizes outbound
 
 Beyond names, emails, and phone numbers, Rehydra detects API keys (OpenAI, Anthropic, Stripe, AWS, GitHub...), JWTs, private keys, database connection strings, and `.env` secrets.
 
+### Credentials the agent can use but not see
+
+Configure named credentials, and the model gets placeholders instead of the values:
+
+```ts
+const anonymizer = createAnonymizer({
+  credentials: {
+    github: {
+      username: "tj-bot",
+      password: { env: "GH_BOT_PW" },        // a string, { env }, or { file }
+      description: "GitHub login for the staging org",
+      tools: ["Bash", "browser_*"],          // tools that may receive the real values
+      hosts: ["github.com"],                 // optional: every host in the call must match
+    },
+  },
+  onCredentialUse: (event) => console.log(event), // { credential, tool, restored, reason? }, never values
+});
+```
+
+The system instruction lists each credential by name and description, with its placeholders: `<PII type="USERNAME" id="github"/>` and `<PII type="PASSWORD" id="github"/>`. The real values are filled in only in the arguments of tool calls the credential allows. Assistant text, `rehydrate()` without a tool call, and stored PII maps keep the placeholders, because credential values never enter a PII map. When a value echoes back in tool output, it is masked again, as are its base64, base64url, URL-encoded, hex and JSON-escaped forms and the `Basic` auth header for the username and password. A call to a tool that isn't allowed keeps the placeholder, and `onCredentialUse` reports it.
+
+With the CLI proxy, put the same object in a JSON file and run `rehydra proxy claude --credentials ./credentials.json`. In the OpenCode plugin, use the `credentials` option.
+
+Names use lowercase letters and digits and start with a letter. Values shorter than 4 characters are restored in tool calls but not masked in output, since they would match too much text.
+
+**What this protects:** the LLM provider never receives the credential, so it can't leak through prompts, provider logs or the model's replies.
+
+**What it doesn't protect:** a prompt-injected or misbehaving agent. Once the real value is in a `Bash` call, the agent can send it anywhere or transform it in ways masking doesn't catch. A tool allowlist doesn't help when the allowed tool is a shell. `hosts` only checks the URLs and `user@host:` remotes written in the call. In proxy mode the client runs the tools, so the real value ends up in the client's local transcript. Rehydra doesn't quote values for the shell: a password containing `'`, `"`, `$` or a backtick can break a shell command it's restored into, so prefer tools that take structured arguments.
+
 ### Streaming-aware
 
 Purpose-built for LLM token streams. A sentence-buffered chunking system with NER overlap preservation ensures accurate detection even when PII spans chunk boundaries — with a low-latency mode for real-time streaming.

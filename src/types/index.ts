@@ -1,4 +1,4 @@
-import { PIIType, DEFAULT_TYPE_PRIORITY, SECRET_PII_TYPES } from "./pii-types.js";
+import { PIIType, DEFAULT_TYPE_PRIORITY, SECRET_PII_TYPES, CREDENTIAL_PII_TYPES } from "./pii-types.js";
 
 export * from "./pii-types.js";
 
@@ -299,9 +299,8 @@ export interface SecretsConfig {
 export function createDefaultPolicy(): AnonymizationPolicy {
   const allTypes = new Set(Object.values(PIIType) as PIIType[]);
 
-  // Secret types are opt-in only — exclude from default enabled set
-  const secretTypeSet = new Set<PIIType>(SECRET_PII_TYPES);
-  for (const secretType of secretTypeSet) {
+  // Secret and credential types are opt-in only — exclude from default enabled set
+  for (const secretType of [...SECRET_PII_TYPES, ...CREDENTIAL_PII_TYPES]) {
     allTypes.delete(secretType);
   }
 

@@ -122,6 +122,23 @@ export interface PIIStorageProvider {
 }
 
 /**
+ * Options for restoring placeholders
+ */
+export interface RehydrateOptions {
+  /**
+   * The tool call whose arguments are being restored. Credentials
+   * (`AnonymizerConfig.credentials`) are filled in only when this is set and
+   * the credential allows the tool and the hosts in `arguments`.
+   */
+  toolCall?: {
+    /** Tool name */
+    name: string;
+    /** The call's full arguments, used for host checks. Defaults to the value being restored. */
+    arguments?: string;
+  };
+}
+
+/**
  * Session-bound interface for anonymization with automatic storage
  *
  * A session wraps an Anonymizer instance with a specific session ID,
@@ -163,11 +180,16 @@ export interface AnonymizerSession {
 
   /**
    * Rehydrate anonymized text by loading and decrypting the stored PII map
+   *
+   * Credential placeholders stay as they are unless `options.toolCall` names
+   * a tool call the credential may be used in.
+   *
    * @param text - Anonymized text with PII placeholders
+   * @param options - Pass `toolCall` when restoring tool-call arguments
    * @returns Original text with PII values restored
-   * @throws Error if no PII map found for this session
+   * @throws Error if no PII map found for this session (not with `toolCall`)
    */
-  rehydrate(text: string): Promise<string>;
+  rehydrate(text: string, options?: RehydrateOptions): Promise<string>;
 
   /**
    * Load the stored PII map for this session (without decrypting)
@@ -220,6 +242,7 @@ export interface AnonymizerSession {
    * Returns a deep copy with every string leaf rehydrated via session.rehydrate().
    *
    * @param value - Any JSON-serializable value
+   * @param options - Pass `toolCall` when restoring tool-call arguments
    * @returns Deep copy with all strings rehydrated (PII tags replaced with original values)
    *
    * @example
@@ -228,7 +251,7 @@ export interface AnonymizerSession {
    * // { name: "John Smith", email: "john@example.com", age: 30 }
    * ```
    */
-  rehydrateJson<T>(value: T): Promise<T>;
+  rehydrateJson<T>(value: T, options?: RehydrateOptions): Promise<T>;
 
   /**
    * Create a streaming anonymizer bound to this session.

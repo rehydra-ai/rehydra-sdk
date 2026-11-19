@@ -9,11 +9,12 @@ import { decryptPIIMap } from "../crypto/index.js";
 import { rehydrate } from "../pipeline/tagger.js";
 import type { RawPIIMap } from "../pipeline/tagger.js";
 import { AnonymizerSessionImpl } from "../storage/session.js";
+import { escapeForJson } from "../storage/session-base.js";
 import { SSEParser, isSSEDone, serializeSSEEvent } from "./sse-parser.js";
 import { detectProvider } from "./providers/index.js";
 import type { LLMContentProvider, ToolResultMessage } from "./providers/types.js";
 import type { RehydraFetchConfig } from "./types.js";
-import { buildPIISystemInstruction } from "./system-instruction.js";
+import { buildPIISystemInstruction, buildCredentialInstruction } from "./system-instruction.js";
 import { buildTagPrefix } from "../utils/regex.js";
 import { accumulateToolStream, readToolResponse, toolResultStream } from "./tool-loop-stream.js";
 import { DEFAULT_TAG_FORMAT } from "../types/index.js";
@@ -211,10 +212,16 @@ export function createRehydraFetch(
         config.systemInstruction !== false &&
         provider.injectSystemInstruction !== undefined
       ) {
+        // Credentials are listed even with a custom instruction: the model
+        // can't use them without knowing their placeholders.
+        const credentials = anonymizer.credentialStore?.describe() ?? [];
+        const credentialSection = buildCredentialInstruction(tagFormat, credentials);
         const instruction =
           typeof config.systemInstruction === "string"
-            ? config.systemInstruction
-            : buildPIISystemInstruction(tagFormat);
+            ? credentialSection === ""
+              ? config.systemInstruction
+              : `${config.systemInstruction}\n\n${credentialSection}`
+            : buildPIISystemInstruction(tagFormat, credentials);
         anonymizedBody = provider.injectSystemInstruction(
           anonymizedBody,
           instruction,
@@ -375,10 +382,15 @@ async function rehydrateJSONResponseFromBody(
   ) {
     const toolCallArgs = provider.extractResponseToolCalls(rehydratedBody);
     if (toolCallArgs.length > 0) {
+      const toolNames = provider.extractResponseToolCallNames?.(rehydratedBody) ?? [];
       const rehydratedArgs: string[] = [];
-      for (const arg of toolCallArgs) {
-        const rehydrated = await session.rehydrate(arg);
-        rehydratedArgs.push(rehydrated);
+      for (const [i, arg] of toolCallArgs.entries()) {
+        // Tool arguments are JSON text here, so restored values are escaped.
+        const restore = await session.toolCallRehydrator(
+          { name: toolNames[i] ?? "", arguments: arg },
+          { json: true },
+        );
+        rehydratedArgs.push(restore(arg));
       }
       rehydratedBody = provider.rebuildResponseToolCalls(
         rehydratedBody,
@@ -461,11 +473,12 @@ async function handleToolLoop(
       // Rehydrate the arguments string to restore real PII
       originalRequest.signal.throwIfAborted();
       let parsedArgs: Record<string, unknown>;
+      const toolCall = { name: tc.name, arguments: tc.arguments };
       try {
         const args = JSON.parse(tc.arguments) as Record<string, unknown>;
-        parsedArgs = await session.rehydrateJson(args);
+        parsedArgs = await session.rehydrateJson(args, { toolCall });
       } catch {
-        parsedArgs = { raw: await session.rehydrate(tc.arguments) };
+        parsedArgs = { raw: await session.rehydrate(tc.arguments, { toolCall }) };
       }
       originalRequest.signal.throwIfAborted();
 
@@ -597,6 +610,45 @@ function rehydrateSSEResponse(
     { sseEvent: string; parsed: unknown }
   >();
 
+  // With credentials, tool call arguments are held back until the call is
+  // complete: whether a credential may be filled in depends on the tool and
+  // on every host the arguments name, which a fragment can't show.
+  const bufferToolArgs =
+    session.hasCredentials &&
+    provider.extractSSEToolCallDeltas !== undefined &&
+    provider.rebuildSSEToolCallDeltas !== undefined;
+  const toolNames = new Map<number, string>();
+
+  async function flushToolCall(
+    index: number,
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ): Promise<void> {
+    const args = toolCallBuffers.get(index) ?? "";
+    const last = toolCallLastEvent.get(index);
+    toolCallBuffers.delete(index);
+    toolCallLastEvent.delete(index);
+    if (args.length === 0 || last === undefined) return;
+    const restore = await session.toolCallRehydrator(
+      { name: toolNames.get(index) ?? "", arguments: args },
+      { json: true },
+    );
+    const restored = restore(args);
+    const data = provider.buildSSEToolCallArgsEvent !== undefined
+      ? provider.buildSSEToolCallArgsEvent(last.parsed, index, restored)
+      : provider.rebuildSSEToolCallDeltas!(last.parsed, new Map([[index, restored]]));
+    controller.enqueue(
+      encoder.encode(serializeSSEEvent({ event: last.sseEvent, data: JSON.stringify(data) })),
+    );
+  }
+
+  async function flushAllToolCalls(
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ): Promise<void> {
+    for (const index of [...toolCallBuffers.keys()]) {
+      await flushToolCall(index, controller);
+    }
+  }
+
   // We load the PII map once, lazily
   let piiMapPromise: Promise<RawPIIMap> | null = null;
 
@@ -622,6 +674,7 @@ function rehydrateSSEResponse(
 
       for (const event of events) {
         if (isSSEDone(event.data)) {
+          if (bufferToolArgs) await flushAllToolCalls(controller);
           controller.enqueue(encoder.encode(serializeSSEEvent(event)));
           continue;
         }
@@ -639,7 +692,14 @@ function rehydrateSSEResponse(
         // In practice, LLM APIs send one or the other per event, but we
         // handle both defensively by chaining rebuilds on the same parsed data.
         let handled = false;
+        let drop = false;
         let rebuiltData: unknown = parsed;
+        const announcedTools = bufferToolArgs
+          ? provider.extractSSEToolCallNames?.(parsed) ?? null
+          : null;
+        for (const { index, name } of announcedTools ?? []) {
+          toolNames.set(index, name);
+        }
 
         // Content delta
         const delta = provider.extractSSEDelta(parsed);
@@ -672,7 +732,19 @@ function rehydrateSSEResponse(
         // Tool call deltas
         if (provider.extractSSEToolCallDeltas !== undefined && provider.rebuildSSEToolCallDeltas !== undefined) {
           const toolDeltas = provider.extractSSEToolCallDeltas(parsed);
-          if (toolDeltas !== null && toolDeltas.length > 0) {
+          if (toolDeltas !== null && toolDeltas.length > 0 && bufferToolArgs) {
+            handled = true;
+            const withheld = new Map<number, string>();
+            for (const td of toolDeltas) {
+              toolCallBuffers.set(td.index, (toolCallBuffers.get(td.index) ?? "") + td.arguments);
+              toolCallLastEvent.set(td.index, { sseEvent: event.event, parsed });
+              withheld.set(td.index, "");
+            }
+            rebuiltData = provider.rebuildSSEToolCallDeltas(rebuiltData, withheld);
+            // Forward what the event carries besides arguments: text, or the
+            // tool's name and ID.
+            drop = delta === null && announcedTools === null;
+          } else if (toolDeltas !== null && toolDeltas.length > 0) {
             handled = true;
             const rehydratedArgs = new Map<number, string>();
 
@@ -708,7 +780,7 @@ function rehydrateSSEResponse(
 
               if (textToRehydrate.length > 0) {
                 const piiMap = await getPiiMap();
-                const rehydrated = rehydrate(textToRehydrate, piiMap, false, tagFormat);
+                const rehydrated = rehydrate(textToRehydrate, escapeForJson(piiMap), false, tagFormat);
                 rehydratedArgs.set(td.index, rehydrated);
               }
             }
@@ -722,8 +794,12 @@ function rehydrateSSEResponse(
           }
         }
 
+        if (bufferToolArgs && provider.isSSEFinish?.(parsed) === true) {
+          await flushAllToolCalls(controller);
+        }
+
         if (handled) {
-          if (rebuiltData !== parsed) {
+          if (!drop && rebuiltData !== parsed) {
             controller.enqueue(
               encoder.encode(
                 serializeSSEEvent({
@@ -742,11 +818,13 @@ function rehydrateSSEResponse(
           provider.rebuildSSEToolCallDeltas !== undefined
         ) {
           const stopIndex = provider.extractSSEToolCallStop(parsed);
-          if (stopIndex !== null) {
+          if (stopIndex !== null && bufferToolArgs) {
+            await flushToolCall(stopIndex, controller);
+          } else if (stopIndex !== null) {
             const buffer = toolCallBuffers.get(stopIndex) ?? "";
             if (buffer.length > 0) {
               const piiMap = await getPiiMap();
-              const rehydrated = rehydrate(buffer, piiMap, false, tagFormat);
+              const rehydrated = rehydrate(buffer, escapeForJson(piiMap), false, tagFormat);
               if (rehydrated.length > 0) {
                 const last = toolCallLastEvent.get(stopIndex);
                 if (last !== undefined) {
@@ -795,13 +873,15 @@ function rehydrateSSEResponse(
       }
 
       // Flush remaining tool call buffers
-      if (
+      if (bufferToolArgs) {
+        await flushAllToolCalls(controller);
+      } else if (
         provider.rebuildSSEToolCallDeltas !== undefined
       ) {
         for (const [index, buffer] of toolCallBuffers) {
           if (buffer.length > 0) {
             const piiMap = await getPiiMap();
-            const rehydrated = rehydrate(buffer, piiMap, false, tagFormat);
+            const rehydrated = rehydrate(buffer, escapeForJson(piiMap), false, tagFormat);
             if (rehydrated.length > 0) {
               const last = toolCallLastEvent.get(index);
               if (last !== undefined) {

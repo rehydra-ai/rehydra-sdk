@@ -10,6 +10,7 @@ export type {
   StoredPIIMap,
   ListOptions,
   AnonymizerSession,
+  RehydrateOptions,
 } from "./types.js";
 
 // Re-export EncryptedPIIMap for convenience

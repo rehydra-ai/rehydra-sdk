@@ -670,14 +670,13 @@ describe("OpenCode Plugin", () => {
       );
       expect((argsA.args as { cmd: string }).cmd).toContain(TEST_SECRET);
 
-      // Rehydrate in session B — should fail (no PII map)
+      // Session B has no PII map, so session A's placeholder stays as it is
       const argsB = { args: { cmd: tagA } };
-      await expect(
-        freshHooks["tool.execute.before"]!(
-          { tool: "bash", sessionID: "ses-B", callID: "c2" },
-          argsB,
-        ),
-      ).rejects.toThrow(/No PII map found/);
+      await freshHooks["tool.execute.before"]!(
+        { tool: "bash", sessionID: "ses-B", callID: "c2" },
+        argsB,
+      );
+      expect((argsB.args as { cmd: string }).cmd).toBe(tagA);
     });
   });
 });

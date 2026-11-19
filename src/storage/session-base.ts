@@ -17,8 +17,10 @@ import type { RawPIIMap } from "../pipeline/tagger.js";
 import type {
   AnonymizerSession,
   PIIStorageProvider,
+  RehydrateOptions,
   StoredPIIMap,
 } from "./types.js";
+import type { CredentialStore, CredentialToolCall } from "../core/credentials.js";
 
 /**
  * Interface for the parent Anonymizer (to avoid circular dependency)
@@ -31,6 +33,7 @@ export interface IAnonymizer {
     existingPiiMap?: RawPIIMap
   ): Promise<AnonymizationResult>;
   readonly resolvedTagFormat: TagFormat;
+  readonly credentialStore?: CredentialStore | null;
 }
 
 /**
@@ -74,6 +77,11 @@ function runExclusive<T>(
     if (queues.get(sessionId) === tail) queues.delete(sessionId);
   });
   return result;
+}
+
+/** The same map with each value escaped for use inside a JSON string literal. */
+export function escapeForJson(map: RawPIIMap): RawPIIMap {
+  return new Map([...map].map(([key, value]) => [key, JSON.stringify(value).slice(1, -1)]));
 }
 
 /**
@@ -192,7 +200,15 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     return result;
   }
 
-  async rehydrate(text: string): Promise<string> {
+  async rehydrate(text: string, options?: RehydrateOptions): Promise<string> {
+    if (options?.toolCall !== undefined) {
+      const restore = await this.toolCallRehydrator({
+        name: options.toolCall.name,
+        arguments: options.toolCall.arguments ?? text,
+      });
+      return restore(text);
+    }
+
     // Load from storage
     const stored = await this.storage.load(this.sessionId);
     if (stored === null) {
@@ -221,8 +237,53 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
     });
   }
 
-  async rehydrateJson<T>(value: T): Promise<T> {
+  async rehydrateJson<T>(value: T, options?: RehydrateOptions): Promise<T> {
+    if (options?.toolCall !== undefined) {
+      const restore = await this.toolCallRehydrator({
+        name: options.toolCall.name,
+        arguments: options.toolCall.arguments ?? JSON.stringify(value),
+      });
+      return walkJson(value, (s: string) => Promise.resolve(restore(s)));
+    }
     return walkJson(value, (s: string) => this.rehydrate(s));
+  }
+
+  /** Whether the anonymizer has credentials configured. */
+  get hasCredentials(): boolean {
+    return (this.anonymizer.credentialStore?.size ?? 0) > 0;
+  }
+
+  /**
+   * Returns a function that restores the strings of one tool call's
+   * arguments: ordinary PII from this session's map, plus the values of the
+   * credentials this call may use. Loads the map once.
+   */
+  async toolCallRehydrator(
+    call: CredentialToolCall,
+    options: { json?: boolean } = {},
+  ): Promise<(text: string) => string> {
+    const stored = await this.storage.load(this.sessionId);
+    const piiMap: RawPIIMap = stored === null
+      ? new Map<string, string>()
+      : await decryptPIIMap(stored.piiMap, await this.keyProvider.getKey());
+    const tagFormat = this.anonymizer.resolvedTagFormat;
+    const store = this.anonymizer.credentialStore;
+    // In JSON text (raw tool-call arguments), values go into string literals
+    // and need escaping, or a quote or backslash in a value breaks the JSON.
+    const restoreWith = (map: RawPIIMap): ((text: string) => string) => {
+      const values = options.json === true ? escapeForJson(map) : map;
+      return (text: string): string => rehydrateText(text, values, false, tagFormat);
+    };
+    if (store === undefined || store === null) {
+      return restoreWith(piiMap);
+    }
+    // Host checks need the real URLs, so restore ordinary PII first.
+    const credentials = store.entriesForToolCall({
+      name: call.name,
+      arguments: rehydrateText(call.arguments, piiMap, false, tagFormat),
+    });
+    const merged = credentials.size === 0 ? piiMap : new Map([...piiMap, ...credentials]);
+    return restoreWith(merged);
   }
 
   async load(): Promise<StoredPIIMap | null> {

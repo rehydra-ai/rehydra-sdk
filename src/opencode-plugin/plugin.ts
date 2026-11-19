@@ -147,7 +147,7 @@ export function createRehydraPlugin(factoryOptions?: RehydraPluginOptions): Plug
         _input: Record<string, unknown>,
         output: { system: string[] },
       ): void => {
-        if (core.hasAnonymized) {
+        if (core.hasAnonymized || core.hasCredentials) {
           log("debug", "injected rehydra instruction into system prompt");
           output.system.push(core.rehydraInstruction);
         }

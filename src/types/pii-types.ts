@@ -43,6 +43,10 @@ export enum PIIType {
   AWS_CREDENTIALS = 'AWS_CREDENTIALS',
   ENV_VAR_SECRET = 'ENV_VAR_SECRET',
   CONFIG_SECRET = 'CONFIG_SECRET',
+
+  // Configured credentials (AnonymizerConfig.credentials)
+  USERNAME = 'USERNAME',
+  PASSWORD = 'PASSWORD',
 }
 
 /**
@@ -83,6 +87,15 @@ export const SECRET_PII_TYPES: readonly PIIType[] = [
   PIIType.AWS_CREDENTIALS,
   PIIType.ENV_VAR_SECRET,
   PIIType.CONFIG_SECRET,
+];
+
+/**
+ * Types for configured credentials. They are detected only when
+ * `AnonymizerConfig.credentials` is set, and a policy cannot turn them off.
+ */
+export const CREDENTIAL_PII_TYPES: readonly PIIType[] = [
+  PIIType.USERNAME,
+  PIIType.PASSWORD,
 ];
 
 /**
@@ -132,6 +145,9 @@ export const DEFAULT_TYPE_PRIORITY: readonly PIIType[] = [
   PIIType.API_KEY,
   PIIType.PRIVATE_KEY,
   PIIType.JWT,
+  // Configured credentials outrank everything that could match the same value
+  PIIType.USERNAME,
+  PIIType.PASSWORD,
 ];
 
 /**

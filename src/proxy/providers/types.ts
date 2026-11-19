@@ -79,6 +79,26 @@ export interface LLMContentProvider {
   /** Rebuild the response body with rehydrated tool call arguments (same order as extractResponseToolCalls) */
   rebuildResponseToolCalls?(body: unknown, rehydratedArgs: string[]): unknown;
 
+  /** Tool names, in the same order as extractResponseToolCalls. Used to decide which credentials a call may use. */
+  extractResponseToolCallNames?(body: unknown): string[];
+
+  /** Tool names announced by a parsed SSE data payload, by tool call index */
+  extractSSEToolCallNames?(data: unknown): Array<{ index: number; name: string }> | null;
+
+  /**
+   * Whether a parsed SSE data payload ends the model's turn (for example an
+   * OpenAI chunk with a finish_reason). Buffered tool call arguments are
+   * flushed before it is forwarded.
+   */
+  isSSEFinish?(data: unknown): boolean;
+
+  /**
+   * Builds an SSE data payload that carries only one tool call's argument
+   * text, based on an earlier event of the same stream. Used to send
+   * buffered arguments without repeating the tool's name or ID.
+   */
+  buildSSEToolCallArgsEvent?(template: unknown, index: number, args: string): unknown;
+
   /** Extract tool call argument deltas from a parsed SSE data payload */
   extractSSEToolCallDeltas?(data: unknown): ToolCallDelta[] | null;
 
