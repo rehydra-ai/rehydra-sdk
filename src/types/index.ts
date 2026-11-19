@@ -327,6 +327,8 @@ export function createDefaultPolicy(): AnonymizationPolicy {
       PIIType.IP_ADDRESS,
       PIIType.URL,
       PIIType.DATE,
+      PIIType.TAX_ID,
+      PIIType.NATIONAL_ID,
       PIIType.CASE_ID,
       PIIType.CUSTOMER_ID,
     ]),

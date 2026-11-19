@@ -177,6 +177,8 @@ describe("createDefaultPolicy", () => {
     expect(policy.regexEnabledTypes.has(PIIType.PHONE)).toBe(true);
     expect(policy.regexEnabledTypes.has(PIIType.POSTAL_CODE)).toBe(true);
     expect(policy.regexEnabledTypes.has(PIIType.IBAN)).toBe(true);
+    expect(policy.regexEnabledTypes.has(PIIType.TAX_ID)).toBe(true);
+    expect(policy.regexEnabledTypes.has(PIIType.NATIONAL_ID)).toBe(true);
     expect(policy.regexEnabledTypes.has(PIIType.PERSON)).toBe(false);
   });
 
