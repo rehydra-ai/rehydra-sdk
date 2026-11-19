@@ -238,6 +238,8 @@ The default regex registry detects UK postcode syntax and numbered English-langu
 
 Disable `ADDRESS` or `POSTAL_CODE` through the detection policy to opt out of either recognizer.
 
-### French identifiers
+### French formats
 
 French social security numbers (NIR) are detected as `NATIONAL_ID` when their mod-97 key is valid, including Corsican `2A`/`2B` numbers. SIRET numbers are detected as `TAX_ID` when they pass the Luhn check and are either written in the usual `732 829 320 00074` grouping or follow a `SIRET`/`SIREN` label. A 9-digit SIREN is only detected after a label, because bare 9- and 14-digit numbers pass Luhn one time in ten. Disable `NATIONAL_ID` or `TAX_ID` through the detection policy to opt out.
+
+French street addresses such as `12 rue de la Paix` are detected as `ADDRESS` when the street name is capitalized; a following `75002 Paris` line becomes part of the same `ADDRESS`. A standalone French postcode is detected as `POSTAL_CODE` when it starts a line or follows a comma and a city name closes the line. Dates written in French (`15 mars 2024`, `1er janvier`, `mars 2024`) are detected as `DATE`; abbreviated months such as `sept.` need a year.

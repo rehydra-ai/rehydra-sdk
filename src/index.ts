@@ -33,6 +33,9 @@ export {
   frenchSiretRecognizer,
   isValidNIR,
   isValidSiretOrSiren,
+  frenchPostalCodeRecognizer,
+  frenchStreetAddressRecognizer,
+  frenchDateRecognizer,
 } from "./recognizers/index.js";
 
 // Re-export NER components
