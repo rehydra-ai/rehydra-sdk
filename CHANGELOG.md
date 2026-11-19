@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.17.0](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.5...v0.17.0) (2026-11-19)
+
+
+### Features
+
+* credential store for agents (usable in tool calls, never seen) ([69dd1c3](https://github.com/rehydra-ai/rehydra-sdk/commit/69dd1c307d575c779d9d6e298be8cf814fbf306f))
+* credential store for agents (usable in tool calls, never seen) ([94fc6ec](https://github.com/rehydra-ai/rehydra-sdk/commit/94fc6ec51d4cc41f70ce27f760fc137cae98d5e5)), closes [#135](https://github.com/rehydra-ai/rehydra-sdk/issues/135)
+* **recognizers:** detect French NIR and SIRET/SIREN numbers ([4822908](https://github.com/rehydra-ai/rehydra-sdk/commit/482290897fc5f59d14f3828c7b9dac4fede41297))
+* **recognizers:** detect French NIR and SIRET/SIREN numbers ([4b2fa25](https://github.com/rehydra-ai/rehydra-sdk/commit/4b2fa25db3b26334915c2ff0dca552998c78a89a)), closes [#119](https://github.com/rehydra-ai/rehydra-sdk/issues/119)
+* **recognizers:** detect French postcodes, street addresses and written dates ([9441436](https://github.com/rehydra-ai/rehydra-sdk/commit/94414362f5f2386047dfa6d602b1c47b3a6120a0))
+* **recognizers:** detect French postcodes, street addresses and written dates ([5a8da9a](https://github.com/rehydra-ai/rehydra-sdk/commit/5a8da9a1e76bed46d1fad79f0f5c1fa5ca342255)), closes [#119](https://github.com/rehydra-ai/rehydra-sdk/issues/119)
+* **server:** rehydra serve, anonymize/rehydrate as a service at a sandbox boundary ([f7b542e](https://github.com/rehydra-ai/rehydra-sdk/commit/f7b542e2fe0d03893230571156cb9b8e76a6d7f6))
+* **server:** rehydra serve, anonymize/rehydrate as a service at a sandbox boundary ([feb96f9](https://github.com/rehydra-ai/rehydra-sdk/commit/feb96f9177678b2f0a6feeb07351bdfd375c628f)), closes [#136](https://github.com/rehydra-ai/rehydra-sdk/issues/136)
+
+
+### Bug Fixes
+
+* **serve:** close idle keep-alive connections on shutdown (Node 18) ([7a2dcdb](https://github.com/rehydra-ai/rehydra-sdk/commit/7a2dcdbd8907ac92f5746070ce21ac6b6fb5030d))
+* **session:** serialize concurrent anonymize calls on one session ([da361f2](https://github.com/rehydra-ai/rehydra-sdk/commit/da361f20fa25aac6a0bae62e649c3fb30c35f59d))
+* **session:** serialize concurrent anonymize calls on one session ([be26d6d](https://github.com/rehydra-ai/rehydra-sdk/commit/be26d6db49da01150ce4af94e8102b5a9ea65b7d))
+
 ## [0.16.5](https://github.com/rehydra-ai/rehydra-sdk/compare/v0.16.4...v0.16.5) (2026-11-01)
 
 
