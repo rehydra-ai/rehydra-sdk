@@ -26,6 +26,8 @@ export {
   isValidNIR,
   isValidSiretOrSiren,
 } from './french-ids.js';
+export { frenchPostalCodeRecognizer, frenchStreetAddressRecognizer } from './french-address.js';
+export { frenchDateRecognizer } from './french-date.js';
 export {
   createCustomIdRecognizer,
   createCaseIdRecognizer,
@@ -49,6 +51,8 @@ import { ipAddressRecognizer } from './ip-address.js';
 import { urlRecognizer } from './url.js';
 import { dateRecognizer } from './date.js';
 import { frenchNirRecognizer, frenchSiretRecognizer } from './french-ids.js';
+import { frenchPostalCodeRecognizer, frenchStreetAddressRecognizer } from './french-address.js';
+import { frenchDateRecognizer } from './french-date.js';
 import { createCaseIdRecognizer, createCustomerIdRecognizer } from './custom-id.js';
 
 /**
@@ -70,6 +74,9 @@ export function createDefaultRegistry(): RecognizerRegistry {
   registry.register(dateRecognizer);
   registry.register(frenchNirRecognizer);
   registry.register(frenchSiretRecognizer);
+  registry.register(frenchPostalCodeRecognizer);
+  registry.register(frenchStreetAddressRecognizer);
+  registry.register(frenchDateRecognizer);
 
   // Register default custom ID recognizers
   registry.register(createCaseIdRecognizer());
