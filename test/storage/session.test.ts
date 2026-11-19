@@ -10,6 +10,7 @@ import {
   type Anonymizer,
   type PIIStorageProvider,
   type KeyProvider,
+  type StoredPIIMap,
 } from "../../src/index.js";
 
 describe("AnonymizerSession", () => {
@@ -485,6 +486,78 @@ describe("AnonymizerSession", () => {
         "Send to user@example.com and also admin@example.com"
       );
       expect(rehydrated4).toBe("Reminder: call +49 30 12345678 tomorrow");
+    });
+  });
+
+  describe("concurrent calls on one session", () => {
+    it("should assign distinct IDs to overlapping anonymize calls", async () => {
+      const session = anonymizer.session("concurrent");
+
+      const [a, b] = await Promise.all([
+        session.anonymize("Mail alice@example.com"),
+        session.anonymize("Mail bob@example.com"),
+      ]);
+
+      expect(a.anonymizedText).not.toBe(b.anonymizedText);
+      expect(await session.rehydrate(a.anonymizedText)).toBe("Mail alice@example.com");
+      expect(await session.rehydrate(b.anonymizedText)).toBe("Mail bob@example.com");
+    });
+
+    it("should serialize calls from separate session objects with the same ID", async () => {
+      // The proxy creates a new session object for every request.
+      const values = ["a@example.com", "b@example.com", "c@example.com", "d@example.com"];
+
+      const results = await Promise.all(
+        values.map((value) => anonymizer.session("shared").anonymize(`Mail ${value}`)),
+      );
+
+      const session = anonymizer.session("shared");
+      for (const [i, result] of results.entries()) {
+        expect(await session.rehydrate(result.anonymizedText)).toBe(`Mail ${values[i]}`);
+      }
+      const stored = await storage.load("shared");
+      expect(stored!.metadata.entityCounts.EMAIL).toBe(values.length);
+    });
+
+    it("should run the next call after one fails", async () => {
+      class FlakyStorage extends InMemoryPIIStorageProvider {
+        failNextLoad = true;
+
+        override async load(sessionId: string): Promise<StoredPIIMap | null> {
+          if (this.failNextLoad) {
+            this.failNextLoad = false;
+            throw new Error("storage unavailable");
+          }
+          return super.load(sessionId);
+        }
+      }
+      const flakyAnonymizer = createAnonymizer({
+        ner: { mode: "disabled" },
+        piiStorageProvider: new FlakyStorage(),
+        keyProvider,
+      });
+      await flakyAnonymizer.initialize();
+      const session = flakyAnonymizer.session("flaky");
+
+      const [first, second] = await Promise.allSettled([
+        session.anonymize("Mail alice@example.com"),
+        session.anonymize("Mail bob@example.com"),
+      ]);
+
+      expect(first.status).toBe("rejected");
+      expect(second.status).toBe("fulfilled");
+      await flakyAnonymizer.dispose();
+    });
+
+    it("should let delete() wait for a pending anonymize call", async () => {
+      const session = anonymizer.session("delete-pending");
+
+      const pending = session.anonymize("Mail alice@example.com");
+      const deleted = await session.delete();
+      await pending;
+
+      expect(deleted).toBe(true);
+      expect(await session.exists()).toBe(false);
     });
   });
 });
