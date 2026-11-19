@@ -220,6 +220,59 @@ describe("server mode", () => {
     expect(response.status).toBe(status);
   });
 
+  it.each([
+    ["a non-JSON content type", "text/plain", "hello", 415],
+    ["invalid JSON", "application/json", "{", 400],
+    ["a JSON array", "application/json", "[]", 400],
+    ["a non-string text", "application/json", '{"text": 3}', 400],
+  ])("should reject %s", async (_label, contentType, body, status) => {
+    const response = await server.handle(
+      new Request("http://rehydra/v1/sessions/s1/anonymize", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": contentType },
+        body,
+      }),
+    );
+    expect(response.status).toBe(status);
+  });
+
+  it("should return display input unchanged for a session with no map", async () => {
+    const result = await post("/v1/sessions/unknown/rehydrate", { json: { a: '<PII type="EMAIL" id="1"/>' }, caller: "display" });
+    expect(result).toEqual({ json: { a: '<PII type="EMAIL" id="1"/>' } });
+  });
+
+  it("should report starting until initialized, then initialize on the first call", async () => {
+    const lazy = createRehydraServer({
+      token: TOKEN,
+      keyProvider: new InMemoryKeyProvider(),
+      piiStorageProvider: new InMemoryPIIStorageProvider(),
+      anonymizer: { ner: { mode: "disabled" } },
+    });
+    const health = () => lazy.handle(new Request("http://rehydra/healthz"));
+
+    expect((await health()).status).toBe(503);
+    const response = await lazy.handle(
+      new Request("http://rehydra/v1/sessions/s/anonymize", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "jane@example.com" }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect((await health()).status).toBe(200);
+    await lazy.dispose();
+    expect((await health()).status).toBe(503);
+  });
+
+  it.each([
+    ["POST", "/healthz"],
+    ["POST", "/v1/sessions/s1"],
+    ["POST", "/v1/sessions/s1/instruction"],
+    ["POST", "/v1/sessions/s1/credentials/crm"],
+  ])("should reject %s %s with 405", async (method, path) => {
+    expect((await call(method, path, {})).status).toBe(405);
+  });
+
   it("should reject oversized bodies", async () => {
     const small = createRehydraServer({
       token: TOKEN,
