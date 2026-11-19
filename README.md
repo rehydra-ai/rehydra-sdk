@@ -164,6 +164,28 @@ Names use lowercase letters and digits and start with a letter. Values shorter t
 
 **What it doesn't protect:** a prompt-injected or misbehaving agent. Once the real value is in a `Bash` call, the agent can send it anywhere or transform it in ways masking doesn't catch. A tool allowlist doesn't help when the allowed tool is a shell. `hosts` only checks the URLs and `user@host:` remotes written in the call. In proxy mode the client runs the tools, so the real value ends up in the client's local transcript. Rehydra doesn't quote values for the shell: a password containing `'`, `"`, `$` or a backtick can break a shell command it's restored into, so prefer tools that take structured arguments.
 
+### Server mode for sandboxed agents
+
+When the agent runs in a sandbox (a VM or container that also handles untrusted input), run Rehydra at the sandbox edge instead of next to the agent. The PII map, the key and credential values stay with the service. The agent and the model only ever handle placeholders, so a prompt-injected agent can't leak values it never had.
+
+```bash
+rehydra serve --socket /run/rehydra.sock --token "$REHYDRA_SERVE_TOKEN" \
+  --db ./pii.db --key "$REHYDRA_KEY" --secrets --credentials ./credentials.json
+```
+
+| Route | Purpose |
+|---|---|
+| `GET /healthz` | 200 once the model and credentials are loaded (no token needed) |
+| `GET /v1/sessions/{id}/instruction` | System instruction for the sandboxed model, listing the credentials it can use |
+| `POST /v1/sessions/{id}/anonymize` | `{ "text": … }` or `{ "json": … }`, optional `locale` and `types` (for example only secret types for source code). Returns the anonymized value and counts by type |
+| `POST /v1/sessions/{id}/rehydrate` | `{ "text" \| "json", "caller": "display" }` restores ordinary PII for showing to the person allowed to see it. `{ …, "caller": "tool", "tool": "send_email", "target": "https://…" }` also fills in the credentials that tool and target may use |
+| `PUT /v1/sessions/{id}/credentials/{name}` | Adds a credential for one session (`username`, `password`, `tools`, `hosts`, `description`). Inline values only, write-only, never stored in the PII map |
+| `DELETE /v1/sessions/{id}` | Drops the session's PII map and credentials |
+
+Every `/v1` route needs `Authorization: Bearer <token>`. Without `--token` or `REHYDRA_SERVE_TOKEN`, `serve` generates one and prints it. It listens on `127.0.0.1:8788` or on `--socket`. JSON payloads round-trip without string-escaping problems. Tools listed in `--redact-tools` get their arguments back with placeholders. Logs and the `onRequest` hook carry types and counts, never values.
+
+To embed the service, use `createRehydraServer` from `rehydra/server`. It takes and returns web-standard `Request` and `Response` objects. Calls for one session run one at a time within the process, so run one server process per PII store. Images, screenshots and PDFs are not scrubbed; callers should treat them as unscrubbed.
+
 ### Streaming-aware
 
 Purpose-built for LLM token streams. A sentence-buffered chunking system with NER overlap preservation ensures accurate detection even when PII spans chunk boundaries — with a low-latency mode for real-time streaming.

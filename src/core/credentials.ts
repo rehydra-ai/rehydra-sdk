@@ -328,6 +328,35 @@ export class CredentialStore {
     return entries;
   }
 
+  /**
+   * Replaces echoed values with their placeholders. Used for credentials
+   * kept outside the anonymizer, such as server-mode session credentials.
+   */
+  mask(text: string): { text: string; countsByType: Record<string, number> } {
+    const matches = this.recognizer()
+      .find(text)
+      .sort((a, b) => b.end - b.start - (a.end - a.start) || a.start - b.start);
+    const kept: SpanMatch[] = [];
+    for (const match of matches) {
+      if (kept.every((other) => match.end <= other.start || match.start >= other.end)) kept.push(match);
+    }
+    let result = text;
+    const countsByType: Record<string, number> = {};
+    for (const match of kept.sort((a, b) => b.start - a.start)) {
+      countsByType[match.type] = (countsByType[match.type] ?? 0) + 1;
+      const form = this.loaded
+        .flatMap((credential) => credential.forms)
+        .find((candidate) => candidate.type === match.type && candidate.value === match.text)!;
+      result = result.slice(0, match.start) + generateTag(form.type, form.id, undefined, this.options.tagFormat ?? DEFAULT_TAG_FORMAT) + result.slice(match.end);
+    }
+    return { text: result, countsByType };
+  }
+
+  /** Whether a credential with this name is configured. */
+  has(name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.config, name);
+  }
+
   /** Names, descriptions and restrictions for the system instruction. No values. */
   describe(): CredentialDescription[] {
     return Object.entries(this.config).map(([name, config]) => ({

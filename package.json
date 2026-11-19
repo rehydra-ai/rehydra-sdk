@@ -60,6 +60,12 @@
         "default": "./dist/proxy/index.js"
       }
     },
+    "./server": {
+      "node": {
+        "types": "./dist/server/index.d.ts",
+        "default": "./dist/server/index.js"
+      }
+    },
     "./cli": {
       "node": {
         "types": "./dist/cli/main.d.ts",

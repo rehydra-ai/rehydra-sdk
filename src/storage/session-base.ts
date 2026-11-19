@@ -260,29 +260,36 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
    */
   async toolCallRehydrator(
     call: CredentialToolCall,
-    options: { json?: boolean } = {},
+    options: {
+      json?: boolean;
+      /** Credentials kept outside the anonymizer, checked like its own. */
+      credentials?: readonly CredentialStore[];
+    } = {},
   ): Promise<(text: string) => string> {
     const stored = await this.storage.load(this.sessionId);
     const piiMap: RawPIIMap = stored === null
       ? new Map<string, string>()
       : await decryptPIIMap(stored.piiMap, await this.keyProvider.getKey());
     const tagFormat = this.anonymizer.resolvedTagFormat;
-    const store = this.anonymizer.credentialStore;
+    const stores = [this.anonymizer.credentialStore, ...(options.credentials ?? [])]
+      .filter((store): store is CredentialStore => store !== undefined && store !== null);
     // In JSON text (raw tool-call arguments), values go into string literals
     // and need escaping, or a quote or backslash in a value breaks the JSON.
     const restoreWith = (map: RawPIIMap): ((text: string) => string) => {
       const values = options.json === true ? escapeForJson(map) : map;
       return (text: string): string => rehydrateText(text, values, false, tagFormat);
     };
-    if (store === undefined || store === null) {
+    if (stores.length === 0) {
       return restoreWith(piiMap);
     }
     // Host checks need the real URLs, so restore ordinary PII first.
-    const credentials = store.entriesForToolCall({
-      name: call.name,
-      arguments: rehydrateText(call.arguments, piiMap, false, tagFormat),
-    });
-    const merged = credentials.size === 0 ? piiMap : new Map([...piiMap, ...credentials]);
+    const restoredArguments = rehydrateText(call.arguments, piiMap, false, tagFormat);
+    const merged = new Map(piiMap);
+    for (const store of stores) {
+      for (const [key, value] of store.entriesForToolCall({ name: call.name, arguments: restoredArguments })) {
+        merged.set(key, value);
+      }
+    }
     return restoreWith(merged);
   }
 
