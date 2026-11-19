@@ -237,3 +237,7 @@ For API reference, configuration, guides, and examples, visit **[docs.rehydra.ai
 The default regex registry detects UK postcode syntax and numbered English-language street addresses such as `34a Friskin Road`. Apartment identifiers are included when adjacent to a street address, as in `Flat 1\n34a Friskin Road`. A contiguous UK address block ending in a postcode is masked as one `ADDRESS`; a standalone postcode uses `POSTAL_CODE`. Bare apartment numbers, unnumbered buildings, and other countries' postal formats need custom recognizers or NER. Postcode matching checks syntax, not whether a postcode is currently assigned.
 
 Disable `ADDRESS` or `POSTAL_CODE` through the detection policy to opt out of either recognizer.
+
+### French identifiers
+
+French social security numbers (NIR) are detected as `NATIONAL_ID` when their mod-97 key is valid, including Corsican `2A`/`2B` numbers. SIRET numbers are detected as `TAX_ID` when they pass the Luhn check and are either written in the usual `732 829 320 00074` grouping or follow a `SIRET`/`SIREN` label. A 9-digit SIREN is only detected after a label, because bare 9- and 14-digit numbers pass Luhn one time in ten. Disable `NATIONAL_ID` or `TAX_ID` through the detection policy to opt out.

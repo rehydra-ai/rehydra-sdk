@@ -29,6 +29,10 @@ export {
   createCustomIdRecognizer,
   createCaseIdRecognizer,
   createCustomerIdRecognizer,
+  frenchNirRecognizer,
+  frenchSiretRecognizer,
+  isValidNIR,
+  isValidSiretOrSiren,
 } from "./recognizers/index.js";
 
 // Re-export NER components
