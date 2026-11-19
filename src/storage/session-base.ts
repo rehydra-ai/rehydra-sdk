@@ -34,6 +34,49 @@ export interface IAnonymizer {
 }
 
 /**
+ * Tail of the write queue for each storage provider and session ID.
+ *
+ * anonymize() loads the session's PII map, runs the anonymizer and saves the
+ * merged map. Two overlapping calls would start from the same map, hand out
+ * the same IDs for different values, and the later save would drop the
+ * earlier call's entries. Callers such as the proxy create a new session
+ * object per request, so the queue is keyed by storage provider and session
+ * ID instead of living on the instance. It only orders calls within one
+ * process; storage shared between processes needs locking of its own.
+ */
+const writeQueues = new WeakMap<PIIStorageProvider, Map<string, Promise<void>>>();
+
+function queuesFor(storage: PIIStorageProvider): Map<string, Promise<void>> {
+  let queues = writeQueues.get(storage);
+  if (queues === undefined) {
+    queues = new Map();
+    writeQueues.set(storage, queues);
+  }
+  return queues;
+}
+
+/** Runs `task` after every earlier write to the same session has settled. */
+function runExclusive<T>(
+  storage: PIIStorageProvider,
+  sessionId: string,
+  task: () => Promise<T>
+): Promise<T> {
+  const queues = queuesFor(storage);
+  const previous = queues.get(sessionId) ?? Promise.resolve();
+  const result = previous.then(task);
+  // A failed write must not block the ones queued after it.
+  const tail = result.then(
+    () => undefined,
+    () => undefined
+  );
+  queues.set(sessionId, tail);
+  void tail.then(() => {
+    if (queues.get(sessionId) === tail) queues.delete(sessionId);
+  });
+  return result;
+}
+
+/**
  * Session implementation that wraps an Anonymizer with automatic storage
  */
 export class AnonymizerSessionImpl implements AnonymizerSession {
@@ -49,6 +92,16 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
   }
 
   async anonymize(
+    text: string,
+    locale?: string,
+    policy?: Partial<AnonymizationPolicy>
+  ): Promise<AnonymizationResult> {
+    return runExclusive(this.storage, this.sessionId, () =>
+      this.anonymizeAndSave(text, locale, policy)
+    );
+  }
+
+  private async anonymizeAndSave(
     text: string,
     locale?: string,
     policy?: Partial<AnonymizationPolicy>
@@ -177,7 +230,9 @@ export class AnonymizerSessionImpl implements AnonymizerSession {
   }
 
   async delete(): Promise<boolean> {
-    return this.storage.delete(this.sessionId);
+    return runExclusive(this.storage, this.sessionId, () =>
+      this.storage.delete(this.sessionId)
+    );
   }
 
   async exists(): Promise<boolean> {
