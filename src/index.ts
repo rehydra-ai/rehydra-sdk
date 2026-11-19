@@ -142,6 +142,7 @@ export {
   type StoredPIIMap,
   type ListOptions,
   type AnonymizerSession,
+  type RehydrateOptions,
   InMemoryPIIStorageProvider,
   SQLitePIIStorageProvider,
   IndexedDBPIIStorageProvider,
@@ -172,6 +173,13 @@ import { AnonymizerSessionImpl } from "./storage/session.js";
 
 // Re-export types from core
 export type { AnonymizerConfig, NERConfig };
+export type {
+  CredentialConfig,
+  CredentialsConfig,
+  CredentialSource,
+  CredentialUseEvent,
+  CredentialDescription,
+} from "./core/credentials.js";
 export type { SecretsConfig } from "./types/index.js";
 export { createSecretRecognizers } from "./recognizers/secrets/index.js";
 

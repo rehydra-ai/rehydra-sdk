@@ -595,14 +595,15 @@ describe("OpenCode Plugin V2", () => {
       await before(argsA);
       expect((argsA.input as { cmd: string }).cmd).toContain(TEST_SECRET);
 
-      // Rehydrate in session B — no PII map
+      // Session B has no PII map, so session A's placeholder stays as it is
       const argsB = {
         tool: "bash",
         sessionID: "ses-B",
         id: "c2",
         input: { cmd: tagA },
       };
-      await expect(before(argsB)).rejects.toThrow(/No PII map found/);
+      await before(argsB);
+      expect((argsB.input as { cmd: string }).cmd).toBe(tagA);
     });
 
     it("should clear session state on cleanup", async () => {
@@ -630,16 +631,17 @@ describe("OpenCode Plugin V2", () => {
         ).text,
       );
 
-      // Unload, then a new session for the same ID has no PII map
+      // Unload, then a new session for the same ID has no PII map, so the
+      // placeholder is no longer restored
       await unloader();
-      await expect(
-        before({
-          tool: "bash",
-          sessionID: "ses-z",
-          id: "c3",
-          input: { cmd: tag },
-        }),
-      ).rejects.toThrow(/No PII map found/);
+      const afterCleanup = {
+        tool: "bash",
+        sessionID: "ses-z",
+        id: "c3",
+        input: { cmd: tag },
+      };
+      await before(afterCleanup);
+      expect((afterCleanup.input as { cmd: string }).cmd).toBe(tag);
     });
   });
 

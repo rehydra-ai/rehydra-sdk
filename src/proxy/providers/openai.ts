@@ -220,6 +220,46 @@ export class OpenAIProvider implements LLMContentProvider {
     return args;
   }
 
+  extractResponseToolCallNames(body: unknown): string[] {
+    const res = body as OpenAIChatResponse;
+    if (!Array.isArray(res.choices)) return [];
+    const names: string[] = [];
+    for (const choice of res.choices) {
+      for (const tc of choice.message?.tool_calls ?? []) {
+        if (typeof tc.function?.arguments === "string") names.push(tc.function.name);
+      }
+    }
+    return names;
+  }
+
+  extractSSEToolCallNames(data: unknown): Array<{ index: number; name: string }> | null {
+    const chunk = data as OpenAIStreamChunk;
+    const toolCalls = chunk.choices?.[0]?.delta?.tool_calls;
+    if (!Array.isArray(toolCalls)) return null;
+    const names = toolCalls
+      .filter((tc) => typeof tc.function?.name === "string")
+      .map((tc) => ({ index: tc.index, name: tc.function!.name! }));
+    return names.length > 0 ? names : null;
+  }
+
+  buildSSEToolCallArgsEvent(template: unknown, index: number, args: string): unknown {
+    const chunk = template as OpenAIStreamChunk;
+    return {
+      ...chunk,
+      choices: [{
+        index: chunk.choices?.[0]?.["index"] ?? 0,
+        delta: { tool_calls: [{ index, function: { arguments: args } }] },
+        finish_reason: null,
+      }],
+    };
+  }
+
+  isSSEFinish(data: unknown): boolean {
+    const chunk = data as OpenAIStreamChunk;
+    const reason = chunk.choices?.[0]?.["finish_reason"];
+    return typeof reason === "string";
+  }
+
   rebuildResponseToolCalls(body: unknown, rehydratedArgs: string[]): unknown {
     const res = structuredClone(body) as OpenAIChatResponse;
     let idx = 0;

@@ -29,6 +29,9 @@ rehydra anonymize input.txt --ner quantized
 # JSON output
 rehydra anonymize input.txt -f json
 
+# Proxy for Claude Code, with named credentials the agent can use in tool calls
+rehydra proxy claude --credentials ./credentials.json
+
 # Full help
 rehydra --help
 ```

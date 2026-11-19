@@ -222,6 +222,32 @@ export class AnthropicProvider implements LLMContentProvider {
     return args;
   }
 
+  extractResponseToolCallNames(body: unknown): string[] {
+    const res = body as AnthropicMessagesResponse;
+    if (!Array.isArray(res.content)) return [];
+    return res.content
+      .filter((block) => block.type === "tool_use" && block.input !== undefined)
+      .map((block) => block.name ?? "");
+  }
+
+  extractSSEToolCallNames(data: unknown): Array<{ index: number; name: string }> | null {
+    const event = data as AnthropicStreamEvent;
+    if (
+      event.type === "content_block_start" &&
+      typeof event.index === "number" &&
+      event.content_block !== undefined &&
+      TOOL_USE_TYPES.has(event.content_block.type) &&
+      typeof event.content_block.name === "string"
+    ) {
+      return [{ index: event.index, name: event.content_block.name }];
+    }
+    return null;
+  }
+
+  buildSSEToolCallArgsEvent(_template: unknown, index: number, args: string): unknown {
+    return { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: args } };
+  }
+
   rebuildResponseToolCalls(body: unknown, rehydratedArgs: string[]): unknown {
     const res = structuredClone(body) as AnthropicMessagesResponse;
     if (!Array.isArray(res.content)) return res;

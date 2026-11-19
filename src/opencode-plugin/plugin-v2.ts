@@ -224,7 +224,7 @@ export function createRehydraPluginV2(
 
         request.finish(event.messages.length);
 
-        if (core.hasAnonymized) {
+        if (core.hasAnonymized || core.hasCredentials) {
           log("debug", "injected rehydra instruction into system prompt");
           event.system.push({ type: "text", text: core.rehydraInstruction });
         }

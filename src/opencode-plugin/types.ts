@@ -3,6 +3,7 @@
  */
 
 import type { AnonymizerConfig } from "../core/anonymizer.js";
+import type { CredentialsConfig } from "../core/credentials.js";
 import type { AnonymizationPolicy, TagFormat } from "../types/index.js";
 import type { PIIType } from "../types/pii-types.js";
 
@@ -49,4 +50,12 @@ export interface RehydraPluginOptions {
 
   /** Tag format configuration (shorthand — also available via anonymizer.tagFormat) */
   tagFormat?: TagFormat;
+
+  /**
+   * Named credentials the agent can use in tool calls without seeing them.
+   * Relative `{ file }` paths are resolved against the project directory.
+   * The values are filled in only in tools each credential allows, and never
+   * for redactTools.
+   */
+  credentials?: CredentialsConfig;
 }

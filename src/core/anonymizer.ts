@@ -17,7 +17,14 @@ import {
   DEFAULT_TAG_FORMAT,
   createDefaultPolicy,
   SECRET_PII_TYPES,
+  CREDENTIAL_PII_TYPES,
 } from "../types/index.js";
+import {
+  CredentialStore,
+  isCredentialKey,
+  type CredentialsConfig,
+  type CredentialUseEvent,
+} from "./credentials.js";
 
 import {
   createDefaultRegistry,
@@ -112,6 +119,22 @@ function mergePolicyWithBase(
       partial.enableSemanticMasking ?? base.enableSemanticMasking,
     excludeLocationScopes:
       partial.excludeLocationScopes ?? base.excludeLocationScopes,
+  };
+}
+
+/**
+ * Turns credential detection on regardless of the policy: credentials are
+ * configured explicitly, and a narrowed policy must not let their values
+ * through.
+ */
+function withCredentialTypes(policy: AnonymizationPolicy): AnonymizationPolicy {
+  if (CREDENTIAL_PII_TYPES.every((type) => policy.enabledTypes.has(type) && policy.regexEnabledTypes.has(type))) {
+    return policy;
+  }
+  return {
+    ...policy,
+    enabledTypes: new Set([...policy.enabledTypes, ...CREDENTIAL_PII_TYPES]),
+    regexEnabledTypes: new Set([...policy.regexEnabledTypes, ...CREDENTIAL_PII_TYPES]),
   };
 }
 
@@ -266,6 +289,17 @@ export interface AnonymizerConfig {
    */
   secrets?: SecretsConfig;
 
+  /**
+   * Named credentials an agent can use in tool calls without seeing them.
+   * The model gets placeholders such as `<PII type="PASSWORD" id="github"/>`;
+   * real values are restored only in the arguments of tool calls the
+   * credential allows, and echoes of the values are masked.
+   */
+  credentials?: CredentialsConfig;
+
+  /** Called whenever a tool call refers to a credential. Receives names only, never values. */
+  onCredentialUse?: (event: CredentialUseEvent) => void;
+
   /** Key provider for encryption (generates random key if not provided) */
   keyProvider?: KeyProvider;
 
@@ -334,6 +368,7 @@ export class Anonymizer {
   private tagFormat: TagFormat;
   private literalRecognizer: Recognizer | null = null;
   private secretValuesKey: string | null = null;
+  private credentials: CredentialStore | null;
 
   constructor(config: AnonymizerConfig = {}, sessionFactory?: SessionFactory) {
     this.registry = config.registry ?? createDefaultRegistry();
@@ -352,6 +387,11 @@ export class Anonymizer {
     if (!this.tagFormat.open || !this.tagFormat.close) {
       throw new Error("TagFormat: open and close delimiters must be non-empty strings");
     }
+
+    const credentials = config.credentials ?? {};
+    this.credentials = Object.keys(credentials).length > 0
+      ? new CredentialStore(credentials, { tagFormat: this.tagFormat, onUse: config.onCredentialUse })
+      : null;
 
     // Handle NER configuration
     this.nerConfig = config.ner ?? { mode: "disabled" };
@@ -416,6 +456,11 @@ export class Anonymizer {
    */
   get resolvedTagFormat(): TagFormat {
     return this.tagFormat;
+  }
+
+  /** The configured credentials, or null when there are none. */
+  get credentialStore(): CredentialStore | null {
+    return this.credentials;
   }
 
   /**
@@ -548,6 +593,12 @@ export class Anonymizer {
       this.applySecretValues(await this.readSecretValues());
     }
 
+    if (this.credentials !== null) {
+      const storage = await getStorageProvider();
+      await this.credentials.load((path) => storage.readTextFile(path));
+      this.registry.register(this.credentials.recognizer());
+    }
+
     this.modelVersion = this.nerModel.version;
     this.initialized = true;
   }
@@ -575,10 +626,12 @@ export class Anonymizer {
     // Merge policy with instance defaults (not global defaults)
     // This ensures semantic config from constructor is preserved
     // Uses deep merge for Maps (confidenceThresholds) and Sets
-    const effectivePolicy =
+    const mergedPolicy =
       policy !== undefined
         ? mergePolicyWithBase(this.defaultPolicy, policy)
         : this.defaultPolicy;
+    const effectivePolicy =
+      this.credentials !== null ? withCredentialTypes(mergedPolicy) : mergedPolicy;
 
     // Step 1: Pre-normalize text
     const normalizedText = prenormalize(text);
@@ -636,11 +689,16 @@ export class Anonymizer {
         : enrichedMatches;
 
     // Step 5: Tag entities and build PII map
+    // Credential entries give their matches the credential's name as ID.
+    const lookupMap =
+      this.credentials !== null
+        ? new Map([...(existingPiiMap ?? []), ...this.credentials.lookupEntries()])
+        : existingPiiMap;
     const { anonymizedText, entities, piiMap } = tagEntities(
       normalizedText,
       scopeFilteredMatches,
       effectivePolicy,
-      existingPiiMap,
+      lookupMap,
       this.tagFormat
     );
 
@@ -659,6 +717,14 @@ export class Anonymizer {
         message: e.message,
       }));
       this.onValidationWarning(safeErrors);
+    }
+
+    // Credential values never go into a PII map: they are added back only
+    // when restoring a tool call that may use them.
+    if (this.credentials !== null) {
+      for (const key of [...piiMap.keys()]) {
+        if (isCredentialKey(key)) piiMap.delete(key);
+      }
     }
 
     // Step 7: Build stats

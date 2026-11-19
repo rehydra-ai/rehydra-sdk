@@ -29,6 +29,7 @@ export interface ParsedOptions {
   "tag-open"?: string;
   "tag-close"?: string;
   "tag-keyword"?: string;
+  credentials?: string;
 }
 
 const HELP_TEXT = `
@@ -61,6 +62,7 @@ ${bold("OPTIONS")}
       --tag-open <str>     Tag open delimiter (default: "<")
       --tag-close <str>    Tag close delimiter (default: "/>")
       --tag-keyword <str>  Tag keyword (default: "PII")
+      --credentials <file> JSON file of named credentials the agent may use in tool calls (proxy)
       --no-color           Disable colored output
       --verbose            Show detection details
   -q, --quiet              Suppress non-essential output
@@ -120,6 +122,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
         "tag-open": { type: "string" },
         "tag-close": { type: "string" },
         "tag-keyword": { type: "string" },
+        credentials: { type: "string" },
         "no-color": { type: "boolean", default: false },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", short: "q", default: false },
@@ -179,6 +182,7 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<numbe
     "tag-open": values["tag-open"] as string | undefined,
     "tag-close": values["tag-close"] as string | undefined,
     "tag-keyword": values["tag-keyword"] as string | undefined,
+    credentials: values["credentials"] as string | undefined,
   };
 
   switch (command) {

@@ -111,6 +111,25 @@ On OpenCode 1, import `createRehydraPlugin` instead (it returns the callable V1 
 
 `redactTools` lists tools whose arguments keep their placeholders. The plugin normally restores real values before a tool runs. For these tools it leaves the placeholders in place and redacts any other detected values in the arguments, so secrets and PII don't reach external services through tools such as `webfetch`, `websearch`, or OpenCode 2's `experimental_image_generate`, which sends its prompt to an image model. `*` matches any characters, which helps with MCP tools: `"exa_*"`. The default is `["webfetch", "websearch", "*image_generate"]`. Setting `redactTools` replaces it, so keep those in your list, or pass `[]` to restore real values for every tool.
 
+### Credentials
+
+`credentials` gives the agent named logins it can use in tool calls without seeing them:
+
+```json
+{
+  "credentials": {
+    "github": {
+      "username": "tj-bot",
+      "password": { "env": "GH_BOT_PW" },
+      "description": "GitHub login for the staging org",
+      "tools": ["bash"]
+    }
+  }
+}
+```
+
+A value can be a string, `{ "env": "NAME" }`, or `{ "file": "path" }`; relative file paths are resolved against the project directory. The system prompt lists each credential by name with its placeholders, from the first request on. The plugin fills in the real values only in the arguments of tools the credential lists (any tool when `tools` is left out), never for `redactTools`, and logs each use by credential and tool name. Assistant text keeps the placeholders, and echoes of the values in tool output are masked again. See the [Rehydra README](https://github.com/rehydra-ai/rehydra-sdk#credentials-the-agent-can-use-but-not-see) for `hosts` and for what this does and doesn't protect against.
+
 ## What gets detected
 
 - Environment variable values from `.env` files

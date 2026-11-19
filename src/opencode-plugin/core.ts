@@ -17,6 +17,8 @@ import { githubUsernameRecognizer } from "./github-username.js";
 import { protectIdentityTags } from "./identity-recognizer.js";
 import { vcsCommandTypes } from "./vcs-command.js";
 import { gitIdentityRecognizer } from "./git-identity.js";
+import type { CredentialsConfig } from "../core/credentials.js";
+import { isAbsolute, join } from "../utils/path.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type Log = (level: LogLevel, message: string, extra?: Record<string, unknown>) => void;
@@ -115,6 +117,46 @@ function isBinaryPayload(value: string): boolean {
   return value.length >= MIN_RAW_BASE64_LENGTH && BASE64_ALPHABET_ONLY.test(value);
 }
 
+/** Resolves relative `{ file }` credential paths against the project directory. */
+function resolveCredentialFiles(
+  credentials: CredentialsConfig | undefined,
+  directory: string,
+): CredentialsConfig | undefined {
+  if (credentials === undefined) return undefined;
+  type Source = CredentialsConfig[string]["password"];
+  const resolve = (source: Source): Source =>
+    typeof source === "object" && "file" in source && !isAbsolute(source.file)
+      ? { file: join(directory, source.file) }
+      : source;
+  return Object.fromEntries(
+    Object.entries(credentials).map(([name, credential]) => [
+      name,
+      {
+        ...credential,
+        password: resolve(credential.password),
+        ...(credential.username === undefined ? {} : { username: resolve(credential.username) }),
+      },
+    ]),
+  );
+}
+
+/**
+ * Restores the strings of one tool call's arguments, filling in the
+ * credentials this tool may use. Loads the session's map only when the
+ * arguments contain a placeholder.
+ */
+async function toolCallRestorer(
+  session: AnonymizerSessionImpl,
+  tool: string,
+  args: unknown,
+  tagPrefix: string,
+): Promise<(text: string) => string> {
+  const argumentsText = JSON.stringify(args) ?? "";
+  if (!argumentsText.includes(tagPrefix)) return (text) => text;
+  const restore = await session.toolCallRehydrator({ name: tool, arguments: argumentsText });
+  return (text) => (text.includes(tagPrefix) ? restore(text) : text);
+}
+
 /** Scrubs the messages of one model request and logs what it found. */
 export interface RequestScrub {
   /** Anonymizes a string. */
@@ -128,6 +170,8 @@ export interface RequestScrub {
 export interface RehydraCore {
   readonly tagPrefix: string;
   readonly rehydraInstruction: string;
+  /** Whether credentials are configured; the instruction is then needed from the first request. */
+  readonly hasCredentials: boolean;
   /** Whether any request so far had something scrubbed. */
   readonly hasAnonymized: boolean;
   startRequest(): RequestScrub;
@@ -169,24 +213,42 @@ export async function createRehydraCore(
     },
   };
 
+  const credentials = resolveCredentialFiles(
+    options.credentials ?? baseConfig.credentials,
+    context.directory,
+  );
   const anonymizerConfig = {
     ...baseConfig,
     secrets: baseConfig.secrets === undefined ? undefined : {
       ...baseConfig.secrets,
       envBaseDirectory: baseConfig.secrets.envBaseDirectory ?? context.directory,
     },
+    ...(credentials === undefined ? {} : { credentials }),
   };
 
   const tagFormat = anonymizerConfig.tagFormat ?? options.tagFormat ?? DEFAULT_TAG_FORMAT;
   const tagPrefix = buildTagPrefix(tagFormat);
-  const rehydraInstruction = `<rehydra>\n${buildPIISystemInstruction(tagFormat)}\n</rehydra>`;
 
   const anonymizer = createAnonymizer({
     ...anonymizerConfig,
     tagFormat,
     keyProvider,
     piiStorageProvider: piiStorage,
+    onCredentialUse: (event) => {
+      baseConfig.onCredentialUse?.(event);
+      if (event.restored) {
+        log("info", "filled in credential for tool", { credential: event.credential, tool: event.tool });
+      } else {
+        log("warn", "kept credential placeholder in tool args", {
+          credential: event.credential,
+          tool: event.tool,
+          reason: event.reason,
+        });
+      }
+    },
   });
+  const credentialList = anonymizer.credentialStore?.describe() ?? [];
+  const rehydraInstruction = `<rehydra>\n${buildPIISystemInstruction(tagFormat, credentialList)}\n</rehydra>`;
   if (options.vcsIdentities === true) {
     anonymizer.getRegistry().register(protectIdentityTags(githubUsernameRecognizer, tagFormat));
     anonymizer.getRegistry().register(protectIdentityTags(gitIdentityRecognizer, tagFormat));
@@ -283,6 +345,7 @@ export async function createRehydraCore(
   return {
     tagPrefix,
     rehydraInstruction,
+    hasCredentials: credentialList.length > 0,
     get hasAnonymized(): boolean {
       return hasAnonymized;
     },
@@ -393,7 +456,11 @@ export async function createRehydraCore(
           async (text) => (await session.anonymize(text, locale, policy)).anonymizedText,
           inPlace,
         )
-        : await deepRehydrate(args, session, tagPrefix, inPlace);
+        : await deepMapStrings(
+          args,
+          await toolCallRestorer(session, tool, args, tagPrefix),
+          inPlace,
+        );
 
       if (redacted) {
         log("info", "kept tool args redacted", { tool, callID });

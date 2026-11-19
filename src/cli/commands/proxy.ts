@@ -24,6 +24,8 @@ import { CLIError } from "../utils/errors.js";
 import { bold, dim, cyan, green, yellow } from "../utils/color.js";
 import { formatProgress, writeProgress, clearProgress } from "../utils/progress.js";
 import { buildTagFormatFromOptions } from "../utils/tag-format.js";
+import { loadCredentialsFile } from "../utils/credentials.js";
+import type { CredentialUseEvent } from "../../core/credentials.js";
 
 const PROVIDER_UPSTREAMS: Record<string, string> = {
   openai: "https://api.openai.com",
@@ -139,6 +141,11 @@ export async function proxyCommand(
   // LLM API key — from --api-key flag or LLM_API_KEY env var
   const llmApiKey = options["api-key"] ?? process.env["LLM_API_KEY"];
 
+  const credentials = options.credentials !== undefined
+    ? await loadCredentialsFile(options.credentials)
+    : undefined;
+  const credentialNames = credentials === undefined ? [] : Object.keys(credentials);
+
   // Overlaps already reported, so each distinct one is only warned about once.
   // Bounded by the upstream path depth — the library always reports a suffix of it.
   const shownPathOverlaps = new Set<string>();
@@ -152,6 +159,17 @@ export async function proxyCommand(
     anonymizer: {
       ...(options.secrets ? { secrets: { enabled: true } } : {}),
       tagFormat: buildTagFormatFromOptions(options),
+      ...(credentials !== undefined
+        ? {
+            credentials,
+            // Names only, never values
+            ...(!options.quiet
+              ? { onCredentialUse: (event: CredentialUseEvent): void => {
+                  process.stderr.write(formatCredentialLog(event));
+                } }
+              : {}),
+          }
+        : {}),
     },
     policy,
     locale: options.locale,
@@ -223,6 +241,7 @@ export async function proxyCommand(
     const bannerBottom = [
       ...(llmApiKey !== undefined ? [`  API key    ${green("configured")}`] : []),
       ...(options.secrets ? [`  Secrets    ${green("enabled")}`] : []),
+      ...(credentialNames.length > 0 ? [`  Credentials ${green(credentialNames.join(", "))}`] : []),
       "",
       `  ${bold("Configure your tools:")}`,
       "",
@@ -376,6 +395,14 @@ function validateUpstream(value: string): URL {
  *   POST /v1/chat/completions → anonymized 1 EMAIL, 1 PERSON
  * Reports types and counts only — never the raw PII values.
  */
+function formatCredentialLog(event: CredentialUseEvent): string {
+  if (event.restored) {
+    return `  ${dim("credential")} ${event.credential} ${dim("→")} filled in for ${event.tool}\n`;
+  }
+  const reason = event.reason === "host-not-allowed" ? "host not allowed" : "tool not allowed";
+  return yellow(`  credential ${event.credential} → kept placeholder for ${event.tool} (${reason})\n`);
+}
+
 function formatAnonymizeLog(info: AnonymizeInfo): string {
   let path: string;
   try {

@@ -144,6 +144,7 @@ export {
   type StoredPIIMap,
   type ListOptions,
   type AnonymizerSession,
+  type RehydrateOptions,
   InMemoryPIIStorageProvider,
   IndexedDBPIIStorageProvider,
   // Note: SQLitePIIStorageProvider is NOT exported in browser build
@@ -175,6 +176,13 @@ import { AnonymizerSessionImpl } from "./storage/session-base.js";
 
 // Re-export types from core
 export type { AnonymizerConfig, NERConfig };
+export type {
+  CredentialConfig,
+  CredentialsConfig,
+  CredentialSource,
+  CredentialUseEvent,
+  CredentialDescription,
+} from "./core/credentials.js";
 
 /**
  * Anonymizer instance
