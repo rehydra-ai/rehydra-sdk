@@ -151,6 +151,8 @@ export async function serveCommand(options: ParsedOptions): Promise<number> {
     const stop = (): void => {
       log(dim("\nShutting down...\n"));
       httpServer.close(() => resolve());
+      // Node 18 waits for idle keep-alive connections before close() finishes.
+      httpServer.closeIdleConnections();
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);

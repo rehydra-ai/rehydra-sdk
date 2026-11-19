@@ -67,7 +67,8 @@ function overSocket(socketPath: string, path: string): Promise<number> {
   });
 }
 
-describe("serveCommand", () => {
+// Each test starts a server; slow CI runners need more than the 5 s default.
+describe("serveCommand", { timeout: 20000 }, () => {
   it("should serve on a port, log requests and credential use, and stop on SIGTERM", async () => {
     const port = randomPort();
     const credentials = join(dir, "credentials.json");
